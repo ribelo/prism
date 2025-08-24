@@ -148,6 +148,13 @@ impl Config {
         let config_dir = get_config_dir()?;
         let config_file = config_dir.join("setu.toml");
 
+        // Create default config if file doesn't exist
+        if !config_file.exists() {
+            tracing::info!("No config file found, creating default at: {:?}", config_file);
+            let default_config = Self::default();
+            default_config.save()?;
+        }
+
         let config = Figment::new()
             .merge(Toml::file(&config_file))
             .merge(Env::prefixed("SETU_"))
