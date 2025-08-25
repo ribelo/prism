@@ -9,7 +9,6 @@ use std::path::PathBuf;
 
 use crate::error::{Result, SetuError};
 
-pub mod models;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -88,6 +87,20 @@ impl AuthConfig {
                 now >= expires
             }
             None => true, // If no expiry time, assume expired
+        }
+    }
+    
+    pub fn needs_refresh(&self) -> bool {
+        match self.oauth_expires {
+            Some(expires) => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                // Refresh if token expires within 10 minutes (600,000 ms)
+                (now + 600_000) >= expires
+            }
+            None => true, // If no expiry time, needs refresh
         }
     }
 }

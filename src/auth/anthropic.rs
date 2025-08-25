@@ -84,7 +84,15 @@ impl AnthropicOAuth {
             .map_err(|e| SetuError::Other(format!("OAuth token exchange failed: {}", e)))?;
 
         if !response.status().is_success() {
-            let error_msg = format!("OAuth token exchange failed with status: {}", response.status());
+            // Store the status before moving the response
+            let status = response.status();
+            
+            // Try to get the error details from the response body
+            let error_body = response.text().await
+                .unwrap_or_else(|_| "Unable to read error body".to_string());
+            
+            let error_msg = format!("OAuth token exchange failed with status: {} - Body: {}", 
+                status, error_body);
             return Err(SetuError::Other(error_msg));
         }
 
@@ -125,8 +133,16 @@ impl AnthropicOAuth {
             .map_err(|e| SetuError::Other(format!("Token refresh failed: {}", e)))?;
 
         if !response.status().is_success() {
+            // Store the status before moving the response
+            let status = response.status();
+            
+            // Try to get the error details from the response body
+            let error_body = response.text().await
+                .unwrap_or_else(|_| "Unable to read error body".to_string());
+            
             return Err(SetuError::Other(
-                format!("Token refresh failed with status: {}", response.status())
+                format!("Token refresh failed with status: {} - Body: {}", 
+                    status, error_body)
             ));
         }
 
@@ -144,6 +160,27 @@ impl AnthropicOAuth {
         auth_config.oauth_refresh_token = Some(token_response.refresh_token);
         auth_config.oauth_expires = Some(now + (token_response.expires_in * 1000));
 
+        Ok(())
+    }
+
+    /// Validate that OAuth tokens are present and can be refreshed if needed
+    pub async fn validate_auth_config(auth_config: &mut AuthConfig) -> Result<()> {
+        // Check if we have refresh token
+        let _refresh_token = auth_config.oauth_refresh_token.as_ref()
+            .ok_or_else(|| SetuError::Other("No OAuth refresh token found. Please run 'setu auth anthropic' to authenticate.".to_string()))?;
+
+        // If access token is missing or expired, try to refresh
+        if auth_config.oauth_access_token.is_none() || auth_config.is_token_expired() {
+            tracing::info!("OAuth access token is missing or expired, attempting refresh...");
+            Self::refresh_token(auth_config).await?;
+        }
+
+        // Verify we now have a valid access token
+        if auth_config.oauth_access_token.is_none() {
+            return Err(SetuError::Other("No OAuth access token available after refresh attempt.".to_string()));
+        }
+
+        tracing::info!("Anthropic OAuth tokens validated successfully");
         Ok(())
     }
 }

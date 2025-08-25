@@ -1,44 +1,33 @@
 use crate::{
-    config::{models::ParsedModel, Config},
-    error::{Result, SetuError},
+    config::Config,
+    error::Result,
 };
 
 /// Name-based router that routes requests based on model name format
 pub struct NameBasedRouter {
-    config: Config,
+    default_provider: String,
 }
 
 impl NameBasedRouter {
     pub fn new(config: Config) -> Self {
-        Self { config }
+        Self {
+            default_provider: config.routing.default_provider.clone(),
+        }
+    }
+    
+    pub fn new_with_default_provider(default_provider: String) -> Self {
+        Self { default_provider }
     }
 
     pub fn route_model(&self, model_name: &str) -> Result<RoutingDecision> {
-        // Try to parse our custom format first: provider/model
-        match ParsedModel::parse(model_name) {
-            Ok(parsed) => {
-                // Validate that the provider exists in config
-                if !self.config.providers.contains_key(&parsed.provider) {
-                    return Err(SetuError::ProviderNotFound(parsed.provider.clone()));
-                }
-
-                Ok(RoutingDecision {
-                    provider: parsed.provider,
-                    model: parsed.model,
-                    original_model: model_name.to_string(),
-                })
-            }
-            Err(_) => {
-                // If parsing fails, try to infer provider from model name
-                let inferred_provider = self.infer_provider_from_model(model_name)?;
-                
-                Ok(RoutingDecision {
-                    provider: inferred_provider,
-                    model: model_name.to_string(),
-                    original_model: model_name.to_string(),
-                })
-            }
-        }
+        // Route based on model name prefix patterns
+        let provider = self.infer_provider_from_model(model_name)?;
+        
+        Ok(RoutingDecision {
+            provider,
+            model: model_name.to_string(),
+            original_model: model_name.to_string(),
+        })
     }
 
     fn infer_provider_from_model(&self, model_name: &str) -> Result<String> {
@@ -56,7 +45,7 @@ impl NameBasedRouter {
         }
 
         // Default to configured default provider
-        Ok(self.config.routing.default_provider.clone())
+        Ok(self.default_provider.clone())
     }
 }
 
@@ -106,18 +95,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_route_explicit_provider() {
-        let config = create_test_config();
-        let router = NameBasedRouter::new(config);
-        
-        let decision = router.route_model("anthropic/claude-3-opus").unwrap();
-        assert_eq!(decision.provider, "anthropic");
-        assert_eq!(decision.model, "claude-3-opus");
-    }
 
     #[test]
-    fn test_route_inferred_provider() {
+    fn test_route_by_model_prefix() {
         let config = create_test_config();
         let router = NameBasedRouter::new(config);
         
@@ -130,14 +110,6 @@ mod tests {
         assert_eq!(decision.model, "claude-3-sonnet");
     }
 
-    #[test]
-    fn test_route_unknown_provider() {
-        let config = create_test_config();
-        let router = NameBasedRouter::new(config);
-        
-        let result = router.route_model("nonexistent/model");
-        assert!(result.is_err());
-    }
 
     #[test]
     fn test_route_default_provider() {
