@@ -1,7 +1,5 @@
-use setu::config::{Config, ServerConfig, ProviderConfig, RoutingConfig};
+use setu::config::{Config, ServerConfig, ProviderConfig, RoutingConfig, AuthConfig};
 use std::collections::HashMap;
-use tempfile::tempdir;
-use std::fs;
 
 #[test]
 fn test_default_config() {
@@ -20,6 +18,7 @@ fn test_config_with_providers() {
         r#type: "openrouter".to_string(),
         endpoint: "https://test.com".to_string(),
         models: vec!["test-model".to_string()],
+        auth: AuthConfig::default(),
     });
 
     let config = Config {
@@ -36,6 +35,7 @@ fn test_config_with_providers() {
         routing: RoutingConfig {
             default_provider: "test_provider".to_string(),
         },
+        auth: HashMap::new(),
     };
 
     assert_eq!(config.server.host, "localhost");
