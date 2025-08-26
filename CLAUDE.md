@@ -103,8 +103,84 @@ Provider API keys can be set via environment variables:
 
 Uses `thiserror` for error types and `backon` for retry logic. All errors flow through `SetuError` type defined in `src/error.rs`.
 
+## Testing with Claude CLI
+
+Setu can be tested using the Claude CLI tool by setting the base URL to point to the local setu server:
+
+```bash
+# Start setu server
+cargo run -- start
+
+# Test with Claude CLI (in another terminal)
+ANTHROPIC_BASE_URL=http://localhost:3742 claude -p "hello"
+```
+
+This allows testing the full request flow through setu's routing system while using Claude Code's OAuth credentials automatically.
+
+### Claude CLI Model Parameter Limitation
+
+**Important**: The Claude CLI `--model` parameter does not work with custom `ANTHROPIC_BASE_URL`. When using a custom base URL, Claude CLI ignores the `--model` parameter and sends its own default model names (e.g., `claude-3-5-haiku-20241022`, `claude-sonnet-4-20250514`).
+
+```bash
+# This will NOT work as expected - model parameter is ignored
+ANTHROPIC_BASE_URL=http://localhost:3742 claude --model openrouter/z-ai/glm-4.5 -p "test"
+
+# Claude CLI will still send claude-3-5-haiku-20241022 instead of openrouter/z-ai/glm-4.5
+```
+
+To test different model routing through setu, you would need to:
+1. Use a different client that respects custom models with custom base URLs
+2. Test setu's routing logic directly via HTTP requests
+3. Configure setu's routing rules to map Claude's default models to desired providers
+
 ## Testing Approach
 
 - Unit tests in `tests/` directory
 - Test individual configs with `cargo test --test <test_name>`
 - Integration tests for routing and API transformation logic
+
+## Code Quality Standards
+
+### Display vs String Methods
+- **User-facing output**: Always implement `Display` trait instead of custom `to_string()` methods
+- **Error messages**: Use `thiserror::Error` which automatically provides `Display`
+- **Logging output**: Prefer `{}` (Display) over `{:?}` (Debug) for user-readable messages
+- **Examples**:
+  ```rust
+  // Good: Implement Display trait
+  impl fmt::Display for TokenInfo {
+      fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+          write!(f, "{} - {}", self.source, self.status)
+      }
+  }
+  
+  // Use in logging
+  tracing::info!("Token status: {}", token_info);  // Display
+  tracing::debug!("Token debug: {:?}", token_info); // Debug
+  ```
+
+### Serialization Standards
+- **JSON responses**: Always implement `Serialize` trait for API responses
+- **Configuration**: Use both `Serialize` and `Deserialize` for config structs
+- **Internal data transfer**: Implement `Serialize` for data that crosses boundaries
+- **Examples**:
+  ```rust
+  // API response types
+  #[derive(Debug, Serialize)]
+  pub struct ApiResponse {
+      pub status: String,
+      pub data: Value,
+  }
+  
+  // Configuration types
+  #[derive(Debug, Clone, Serialize, Deserialize)]
+  pub struct Config {
+      pub server: ServerConfig,
+      pub providers: HashMap<String, Provider>,
+  }
+  ```
+
+### Pattern Summary
+- **Display**: User messages, logs, CLI output, error descriptions
+- **Serialize**: JSON APIs, config files, data persistence
+- **Debug**: Development debugging, internal logging only

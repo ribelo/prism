@@ -24,6 +24,7 @@ backon = "1.2"
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
 futures-util = "0.3"
+async-trait = "0.1"
 
 # Logging and tracing
 tracing = "0.1"
@@ -43,9 +44,11 @@ url = "2.5"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 
 # ai-ox integration (path dependency to workspace crates)
-ai-ox = { path = "../ai-ox/crates/ai-ox", features = ["anthropic", "openrouter"] }
+ai-ox = { path = "../ai-ox/crates/ai-ox", features = ["anthropic", "openrouter", "gemini"] }
 anthropic-ox = { path = "../ai-ox/crates/anthropic-ox", features = ["schema"] }
 openrouter-ox = { path = "../ai-ox/crates/openrouter-ox", features = ["schema"] }
+gemini-ox = { path = "../ai-ox/crates/gemini-ox", features = ["schema"] }
+conversion-ox = { path = "../ai-ox/crates/conversion-ox", features = ["all"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
