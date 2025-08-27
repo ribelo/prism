@@ -9,6 +9,8 @@ use std::path::PathBuf;
 
 use crate::error::{Result, SetuError};
 
+pub mod models;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub server: ServerConfig,

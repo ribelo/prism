@@ -1,6 +1,6 @@
 use crate::{
     error::{Result, SetuError},
-    router::traits::{PrioritizedRouter, RouteRequest, Router, RouterPriority, RoutingDecision},
+    router::traits::{PrioritizedRouter, RouteRequest, Router, RoutingDecision},
 };
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -301,7 +301,6 @@ impl Default for CompositeRouterBuilder {
 mod tests {
     use super::*;
     use crate::router::traits::{RouteRequest, RouterPriority};
-    use crate::router::{ModelRouter, ProviderRouter};
     use std::sync::Arc;
 
     // Mock router for testing

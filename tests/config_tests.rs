@@ -37,6 +37,13 @@ fn test_config_with_providers() {
         providers,
         routing: RoutingConfig {
             default_provider: "test_provider".to_string(),
+            strategy: "composite".to_string(),
+            enable_fallback: true,
+            min_confidence: 0.0,
+            rules: HashMap::new(),
+            provider_priorities: Vec::new(),
+            provider_capabilities: HashMap::new(),
+            provider_aliases: HashMap::new(),
         },
         auth: HashMap::new(),
     };

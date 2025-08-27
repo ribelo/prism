@@ -2,7 +2,6 @@ use crate::{
     config::Config,
     router::{CompositeRouterBuilder, ModelRouter, ProviderRouter, RouteRequest, Router},
 };
-use std::sync::Arc;
 
 /// Router factory for creating routers based on configuration
 pub struct RouterFactory;
@@ -35,7 +34,7 @@ impl RouterFactory {
                 Box::new(provider_router)
             }
             "composite" | _ => {
-                let mut builder =
+                let builder =
                     CompositeRouterBuilder::standard(available_providers, default_provider)
                         .with_fallback(config.routing.enable_fallback)
                         .with_min_confidence(config.routing.min_confidence);

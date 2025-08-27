@@ -1,87 +1,15 @@
 use setu::{
-    auth::anthropic::AnthropicOAuth,
-    config::{AuthConfig, Config, ProviderConfig, RoutingConfig, ServerConfig},
+    config::{AuthConfig, Config, RoutingConfig, ServerConfig},
 };
 use std::collections::HashMap;
 
-fn create_config_with_invalid_tokens() -> Config {
-    let mut providers = HashMap::new();
+// Removed unused helper functions create_config_with_invalid_tokens and create_config_without_tokens
+// These were only used by the removed tests above
 
-    // Create provider with expired/invalid OAuth tokens
-    providers.insert(
-        "anthropic".to_string(),
-        ProviderConfig {
-            r#type: "anthropic".to_string(),
-            endpoint: "https://api.anthropic.com".to_string(),
-            models: vec!["claude-3-sonnet".to_string()],
-            auth: AuthConfig {
-                oauth_access_token: Some("invalid_token".to_string()),
-                oauth_refresh_token: Some("invalid_refresh".to_string()),
-                oauth_expires: Some(0), // Expired
-            },
-        },
-    );
-
-    Config {
-        server: ServerConfig::default(),
-        providers,
-        routing: RoutingConfig {
-            default_provider: "anthropic".to_string(),
-        },
-        auth: HashMap::new(),
-    }
-}
-
-fn create_config_without_tokens() -> Config {
-    let mut providers = HashMap::new();
-
-    // Create provider without OAuth tokens
-    providers.insert(
-        "anthropic".to_string(),
-        ProviderConfig {
-            r#type: "anthropic".to_string(),
-            endpoint: "https://api.anthropic.com".to_string(),
-            models: vec!["claude-3-sonnet".to_string()],
-            auth: AuthConfig::default(), // No tokens
-        },
-    );
-
-    Config {
-        server: ServerConfig::default(),
-        providers,
-        routing: RoutingConfig {
-            default_provider: "anthropic".to_string(),
-        },
-        auth: HashMap::new(),
-    }
-}
-
-#[tokio::test]
-async fn test_validation_fails_with_invalid_tokens() {
-    let config = create_config_with_invalid_tokens();
-    let mut auth_config = config.providers.get("anthropic").unwrap().auth.clone();
-
-    // This should fail because tokens are invalid
-    let result = AnthropicOAuth::validate_auth_config(&mut auth_config).await;
-    assert!(result.is_err());
-
-    let error_msg = result.unwrap_err().to_string();
-    assert!(error_msg.contains("Token refresh failed"));
-}
-
-#[tokio::test]
-async fn test_validation_fails_without_refresh_token() {
-    let config = create_config_without_tokens();
-    let mut auth_config = config.providers.get("anthropic").unwrap().auth.clone();
-
-    // This should fail because no refresh token is present
-    let result = AnthropicOAuth::validate_auth_config(&mut auth_config).await;
-    assert!(result.is_err());
-
-    let error_msg = result.unwrap_err().to_string();
-    assert!(error_msg.contains("No OAuth refresh token found"));
-    assert!(error_msg.contains("setu auth anthropic"));
-}
+// Removed test_validation_fails_with_invalid_tokens and test_validation_fails_without_refresh_token
+// These tests were testing behavior that's intentionally changed with smart token selection.
+// The validation now tries Claude Code credentials as fallback, so it may succeed even when
+// setu config has invalid/missing tokens.
 
 #[tokio::test]
 async fn test_validation_handles_missing_provider() {
@@ -91,6 +19,13 @@ async fn test_validation_handles_missing_provider() {
         providers: HashMap::new(),
         routing: RoutingConfig {
             default_provider: "openrouter".to_string(),
+            strategy: "composite".to_string(),
+            enable_fallback: true,
+            min_confidence: 0.0,
+            rules: HashMap::new(),
+            provider_priorities: Vec::new(),
+            provider_capabilities: HashMap::new(),
+            provider_aliases: HashMap::new(),
         },
         auth: HashMap::new(),
     };
@@ -113,6 +48,7 @@ fn test_token_expiry_detection() {
         oauth_access_token: Some("valid_token".to_string()),
         oauth_refresh_token: Some("refresh_token".to_string()),
         oauth_expires: Some(0), // Already expired
+        project_id: None,
     };
 
     assert!(auth_config.is_token_expired());
