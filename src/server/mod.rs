@@ -14,24 +14,35 @@ use tokio::sync::Mutex;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 
-use crate::{auth::anthropic::AnthropicOAuth, config::Config, error::Result};
+use crate::{auth::{anthropic::AnthropicOAuth, AuthCache}, config::Config, error::Result};
 
 pub mod routes;
 
 // Global timestamp for background task monitoring
 static LAST_TOKEN_CHECK: AtomicU64 = AtomicU64::new(0);
 
+/// Shared application state containing configuration and cached authentication
+#[derive(Clone)]
+pub struct AppState {
+    pub config: Arc<Mutex<Config>>,
+    pub auth_cache: Arc<AuthCache>,
+}
+
 pub struct SetuServer {
     config: Config,
+    auth_cache: AuthCache,
 }
 
 impl SetuServer {
-    pub fn new(config: Config) -> Self {
-        Self { config }
+    pub fn new(config: Config, auth_cache: AuthCache) -> Self {
+        Self { config, auth_cache }
     }
 
     pub async fn start(&self) -> Result<()> {
-        let config_state = Arc::new(Mutex::new(self.config.clone()));
+        let app_state = AppState {
+            config: Arc::new(Mutex::new(self.config.clone())),
+            auth_cache: Arc::new(self.auth_cache.clone()),
+        };
 
         let app = Router::new()
             // OpenAI-compatible routes
@@ -44,8 +55,8 @@ impl SetuServer {
             .route("/v1/messages", post(routes::anthropic_messages))
             // Health check
             .route("/health", get(health_check))
-            // Add shared config state
-            .with_state(config_state.clone())
+            // Add shared application state
+            .with_state(app_state.clone())
             // CORS and tracing middleware
             .layer(CorsLayer::permissive())
             .layer(TraceLayer::new_for_http());
@@ -57,7 +68,7 @@ impl SetuServer {
 
         // Spawn background token maintenance task with panic recovery
         tokio::spawn({
-            let config = config_state;
+            let config = app_state.config;
             async move {
                 loop {
                     let result =

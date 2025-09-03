@@ -14,6 +14,19 @@ pub struct TokenInfo {
     pub age_description: String,
 }
 
+impl TokenInfo {
+    /// Create an unavailable token info for the given source
+    pub fn unavailable(source: impl Into<String>) -> Self {
+        Self {
+            source: source.into(),
+            available: false,
+            expires_at: None,
+            is_expired: true,
+            age_description: "unavailable".to_string(),
+        }
+    }
+}
+
 impl fmt::Display for TokenInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if !self.available {
@@ -88,6 +101,17 @@ pub fn analyze_token_source(source_name: &str, auth_config: &AuthConfig) -> Toke
         is_expired,
         age_description,
     }
+}
+
+/// Check if OAuth tokens exist anywhere (even if expired) - indicates user has subscription
+pub fn oauth_tokens_exist_anywhere() -> bool {
+    // Check Claude CLI tokens
+    let claude_exists = crate::auth::anthropic::AnthropicOAuth::try_claude_code_credentials().is_ok();
+    
+    // Check Gemini CLI tokens  
+    let gemini_exists = crate::auth::google::GoogleOAuth::try_gemini_cli_credentials().is_ok();
+    
+    claude_exists || gemini_exists
 }
 
 /// Choose the best token source based on availability and freshness

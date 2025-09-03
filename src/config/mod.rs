@@ -258,7 +258,16 @@ impl Config {
         let toml_string = toml::to_string_pretty(self)
             .map_err(|e| SetuError::Other(format!("Failed to serialize config: {}", e)))?;
 
+        // Write config file with restricted permissions (600 - owner read/write only)
         std::fs::write(&config_file, toml_string)?;
+        
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&config_file)?.permissions();
+            perms.set_mode(0o600); // Read/write for owner only
+            std::fs::set_permissions(&config_file, perms)?;
+        }
         Ok(())
     }
 }

@@ -109,13 +109,7 @@ impl GoogleOAuth {
             .map(|config| analyze_token_source("Gemini CLI", &config))
             .unwrap_or_else(|e| {
                 tracing::debug!("Gemini CLI credentials unavailable: {}", e);
-                TokenInfo {
-                    source: "Gemini CLI".to_string(),
-                    available: false,
-                    expires_at: None,
-                    is_expired: true,
-                    age_description: "unavailable".to_string(),
-                }
+                TokenInfo::unavailable("Gemini CLI")
             });
 
         tracing::info!("Gemini Token Analysis:");

@@ -103,7 +103,16 @@ async fn start_server(host: Option<String>, port: Option<u16>) -> Result<()> {
     // Save config in case tokens were refreshed during validation
     config.save()?;
 
-    let server = setu::server::SetuServer::new(config);
+    // Initialize authentication cache - fails startup if any OAuth tokens are expired
+    let auth_cache = match setu::auth::initialize_auth_cache() {
+        Ok(cache) => cache,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let server = setu::server::SetuServer::new(config, auth_cache);
     server.start().await
 }
 

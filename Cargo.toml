@@ -44,11 +44,11 @@ url = "2.5"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 
 # ai-ox integration (path dependency to workspace crates)
-ai-ox = { path = "../ai-ox/crates/ai-ox", features = ["anthropic", "openrouter", "gemini"] }
+ai-ox = { path = "../ai-ox/crates/ai-ox", features = ["anthropic", "gemini"] }
 anthropic-ox = { path = "../ai-ox/crates/anthropic-ox" }
-openrouter-ox = { path = "../ai-ox/crates/openrouter-ox" }
 gemini-ox = { path = "../ai-ox/crates/gemini-ox" }
-conversion-ox = { path = "../ai-ox/crates/conversion-ox", features = ["all"] }
+openrouter-ox = { path = "../ai-ox/crates/openrouter-ox" }
+conversion-ox = { path = "../ai-ox/crates/conversion-ox", features = ["anthropic-gemini", "anthropic-openrouter"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

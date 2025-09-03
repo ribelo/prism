@@ -260,15 +260,7 @@ impl AnthropicOAuth {
         let setu_token_info = analyze_token_source("setu config", auth_config);
         let claude_token_info = Self::try_claude_code_credentials()
             .map(|config| analyze_token_source("Claude Code", &config))
-            .unwrap_or_else(|_| {
-                TokenInfo {
-                    source: "Claude Code".to_string(),
-                    available: false,
-                    expires_at: None,
-                    is_expired: true,
-                    age_description: "unavailable".to_string(),
-                }
-            });
+            .unwrap_or_else(|_| TokenInfo::unavailable("Claude Code"));
 
         let chosen_source = choose_best_token_source(&setu_token_info, &claude_token_info);
         tracing::info!("Using {} tokens", chosen_source.source);

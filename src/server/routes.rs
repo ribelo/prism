@@ -10,10 +10,7 @@ use tokio::sync::Mutex;
 use tracing::info;
 
 use crate::{
-    auth::{
-        anthropic::AnthropicOAuth,
-        common::{analyze_token_source, choose_best_token_source},
-    },
+    auth::common::{analyze_token_source, choose_best_token_source},
     config::Config,
     error::SetuError,
     router::{NameBasedRouter, name_based::LegacyRoutingDecision},
@@ -51,7 +48,6 @@ mod error_handling {
 
 // AI provider imports
 use anthropic_ox::{Anthropic, ChatRequest};
-use conversion_ox::anthropic_openrouter::streaming::StreamConverter;
 use gemini_ox::Gemini;
 use openrouter_ox::OpenRouter;
 
@@ -97,7 +93,7 @@ fn compact_request_for_logging(value: &Value) -> Value {
 
 /// OpenAI chat completions endpoint handler - not implemented for Claude Code
 pub async fn openai_chat_completions(
-    State(_config): State<Arc<Mutex<Config>>>,
+    State(_app_state): State<crate::server::AppState>,
     _request: Request,
 ) -> Result<Json<Value>, StatusCode> {
     info!("OpenAI chat completions → Not implemented");
@@ -105,7 +101,7 @@ pub async fn openai_chat_completions(
 }
 
 /// NoOp handler for OpenAI models endpoint
-pub async fn openai_models(State(_config): State<Arc<Mutex<Config>>>) -> Json<Value> {
+pub async fn openai_models(State(_app_state): State<crate::server::AppState>) -> Json<Value> {
     info!("OpenAI models → Mock response");
 
     let mock_response = json!({
@@ -121,60 +117,20 @@ pub async fn openai_models(State(_config): State<Arc<Mutex<Config>>>) -> Json<Va
     Json(mock_response)
 }
 
-/// Handle OAuth authentication for Claude Code requests
+/// Handle OAuth authentication using cached token from startup
 async fn handle_oauth_request(
-    config: Arc<Mutex<Config>>,
+    auth_method: &crate::auth::AuthMethod,
     chat_request: ChatRequest,
     parts: axum::http::request::Parts,
 ) -> Result<axum::response::Response, StatusCode> {
-    info!("Claude Code → Anthropic OAuth: {}", chat_request.model);
 
-    // Smart token selection - compare both sources
-    let (oauth_token, _token_source) = {
-        let config_guard = config.lock().await;
-        let setu_auth_config = config_guard
-            .providers
-            .get("anthropic")
-            .map(|provider| &provider.auth)
-            .ok_or_else(|| {
-                error_handling::unauthorized("No OAuth credentials for anthropic provider")
-            })?;
-
-        // Analyze both token sources
-        let setu_info = analyze_token_source("setu config", setu_auth_config);
-        let claude_info = AnthropicOAuth::try_claude_code_credentials()
-            .map(|config| analyze_token_source("Claude Code", &config))
-            .unwrap_or_else(|_| {
-                // Create a dummy unavailable token info
-                let dummy_config = crate::config::AuthConfig::default();
-                analyze_token_source("Claude Code (unavailable)", &dummy_config)
-            });
-
-        let chosen = choose_best_token_source(&setu_info, &claude_info);
-        tracing::debug!("Request-level token decision: {}", chosen);
-
-        match chosen.source.as_str() {
-            "Claude Code" => {
-                let claude_config = AnthropicOAuth::try_claude_code_credentials()
-                    .map_err(|_| error_handling::unauthorized("Claude Code tokens unavailable"))?;
-                let token = claude_config
-                    .oauth_access_token
-                    .ok_or_else(|| error_handling::unauthorized("Claude Code OAuth token missing"))?;
-                (token, "Claude Code".to_string())
-            }
-            "setu config" => {
-                let token = setu_auth_config
-                    .oauth_access_token
-                    .as_ref()
-                    .ok_or_else(|| error_handling::unauthorized("Setu OAuth token missing"))?
-                    .clone();
-                (token, "setu config".to_string())
-            }
-            _ => {
-                return Err(error_handling::unauthorized("No valid OAuth tokens available"));
-            }
+    // Get OAuth token from cached auth method
+    let oauth_token = match auth_method {
+        crate::auth::AuthMethod::OAuth { token, .. } => token.clone(),
+        crate::auth::AuthMethod::ApiKey => {
+            return Err(error_handling::unauthorized("OAuth method expected but API key method was cached"));
         }
-    }; // Lock is automatically dropped here
+    };
 
     // Create Anthropic client with OAuth and custom headers
     let mut client = Anthropic::builder().oauth_token(oauth_token).build();
@@ -209,16 +165,20 @@ async fn handle_direct_anthropic_request(
     chat_request: ChatRequest,
     parts: axum::http::request::Parts,
 ) -> Result<axum::response::Response, StatusCode> {
-    info!("Direct → Anthropic: {}", chat_request.model);
 
-    // Create client with API key from authorization header
-    let mut client = if let Some(auth_header) = parts.headers.get("authorization") {
+    // Debug: Log all incoming headers to understand what Claude CLI sends
+    tracing::debug!("Incoming headers: {:?}", parts.headers);
+
+    // Create client with API key from authorization header or x-api-key header
+    let api_key = if let Some(auth_header) = parts.headers.get("authorization") {
+        tracing::debug!("Found Authorization header");
         if let Ok(auth_str) = auth_header.to_str() {
-            if let Some(api_key) = auth_str.strip_prefix("Bearer ") {
-                Anthropic::builder().api_key(api_key).build()
+            if let Some(key) = auth_str.strip_prefix("Bearer ") {
+                tracing::debug!("Using Bearer token from Authorization header");
+                key.to_string()
             } else {
                 return Err(error_handling::unauthorized(
-                    "Invalid authorization header format",
+                    "Invalid authorization header format - must be 'Bearer <api_key>'",
                 ));
             }
         } else {
@@ -226,9 +186,24 @@ async fn handle_direct_anthropic_request(
                 "Authorization header contains invalid characters",
             ));
         }
+    } else if let Some(api_key_header) = parts.headers.get("x-api-key") {
+        tracing::debug!("Found x-api-key header");
+        if let Ok(key_str) = api_key_header.to_str() {
+            tracing::debug!("Using API key from x-api-key header");
+            key_str.to_string()
+        } else {
+            return Err(error_handling::unauthorized(
+                "x-api-key header contains invalid characters",
+            ));
+        }
     } else {
-        return Err(error_handling::unauthorized("Missing authorization header"));
+        tracing::debug!("No authentication headers found");
+        return Err(error_handling::unauthorized(
+            "Missing authentication - provide either Authorization: Bearer <key> or x-api-key: <key> header",
+        ));
     };
+
+    let mut client = Anthropic::builder().api_key(api_key).build();
 
     // Add custom headers from request
     for (name, value) in parts.headers.iter() {
@@ -346,7 +321,7 @@ async fn parse_chat_request(body: axum::body::Body) -> Result<ChatRequest, Statu
 
 /// Anthropic messages endpoint handler with Claude Code transformation
 pub async fn anthropic_messages(
-    State(config): State<Arc<Mutex<Config>>>,
+    State(app_state): State<crate::server::AppState>,
     request: Request,
 ) -> Result<axum::response::Response, StatusCode> {
     let (parts, body) = request.into_parts();
@@ -356,7 +331,7 @@ pub async fn anthropic_messages(
 
     // Route the request based on model name - extract only default provider
     let default_provider = {
-        let config_guard = config.lock().await;
+        let config_guard = app_state.config.lock().await;
         config_guard.routing.default_provider.clone()
     };
     let router = NameBasedRouter::new_with_default_provider(default_provider);
@@ -370,108 +345,131 @@ pub async fn anthropic_messages(
         }
     };
 
-    // Handle OpenRouter routing
+    // Handle OpenRouter routing (temporarily returns SERVICE_UNAVAILABLE)
     if routing_decision.provider == "openrouter" {
-        return handle_openrouter_request(config, chat_request, routing_decision, parts.headers)
+        return handle_openrouter_request(app_state.config.clone(), chat_request, routing_decision, parts.headers)
             .await;
     }
 
     // Handle Gemini routing
     if routing_decision.provider == "google" || routing_decision.provider == "gemini" {
-        return handle_gemini_request(config, chat_request, routing_decision, parts.headers).await;
+        return handle_gemini_request(app_state.config.clone(), chat_request, routing_decision, parts.headers).await;
     }
 
-    // Check if we have OAuth tokens configured - if so, use OAuth regardless of headers
-    let has_oauth_config = {
-        let config_guard = config.lock().await;
-        config_guard
-            .providers
-            .get("anthropic")
-            .map(|provider| provider.auth.oauth_access_token.is_some())
-            .unwrap_or(false)
-    };
-
-    if has_oauth_config {
-        handle_oauth_request(config, chat_request, parts).await
-    } else {
-        handle_direct_anthropic_request(chat_request, parts).await
+    // Use cached authentication decision from startup
+    let is_claude_code = is_claude_code_request(&parts.headers);
+    
+    match &app_state.auth_cache.anthropic_method {
+        crate::auth::AuthMethod::OAuth { source, .. } => {
+            if is_claude_code {
+                info!("🔐 Claude Code → OAuth ({}, subscription billing) → {}", source, chat_request.model);
+            } else {
+                info!("🔐 Direct → OAuth ({}, subscription billing) → {}", source, chat_request.model); 
+            }
+            handle_oauth_request(&app_state.auth_cache.anthropic_method, chat_request, parts).await
+        }
+        crate::auth::AuthMethod::ApiKey => {
+            info!("💳 Anthropic → API Key (pay-per-use billing) → {}", chat_request.model);
+            handle_direct_anthropic_request(chat_request, parts).await
+        }
     }
 }
 
+/// Check if request is from Claude Code CLI
+fn is_claude_code_request(headers: &axum::http::HeaderMap) -> bool {
+    // Check user-agent for Claude Code
+    if let Some(user_agent) = headers.get("user-agent") {
+        if let Ok(ua_str) = user_agent.to_str() {
+            if ua_str.starts_with("claude-cli/") {
+                return true;
+            }
+        }
+    }
+    
+    // Check x-app header
+    if let Some(x_app) = headers.get("x-app") {
+        if let Ok(app_str) = x_app.to_str() {
+            if app_str == "cli" {
+                return true;
+            }
+        }
+    }
+    
+    false
+}
+
+
+
 /// Handle requests routed to OpenRouter
 async fn handle_openrouter_request(
-    _config: Arc<Mutex<Config>>,
+    config: Arc<Mutex<Config>>,
     anthropic_request: ChatRequest,
     routing_decision: LegacyRoutingDecision,
     _headers: axum::http::HeaderMap,
 ) -> Result<axum::response::Response, StatusCode> {
-    info!(
-        "Claude Code → OpenRouter: {} ({})",
-        anthropic_request.model, routing_decision.model
-    );
+    info!("Anthropic → OpenRouter: {} → {}", anthropic_request.model, routing_decision.model);
 
-    // Check if this is a streaming request (before converting)
-    let is_streaming = anthropic_request.stream.unwrap_or(false);
+    // Create OpenRouter client
+    let client = match create_openrouter_client(config.clone()).await {
+        Ok(client) => client,
+        Err(e) => {
+            return Err(error_handling::bad_gateway("Failed to create OpenRouter client", &e));
+        }
+    };
 
-    // Convert Anthropic request to OpenRouter request using conversion-ox
-    let mut openrouter_request: openrouter_ox::ChatRequest = anthropic_request.into();
-    // Use the routed model name instead of the original
-    openrouter_request.model = routing_decision.model;
+    // Update the model name to use the routed model (without provider prefix)
+    let mut modified_request = anthropic_request;
+    modified_request.model = routing_decision.model.clone();
 
-    // Debug: Log the converted request
-    tracing::debug!(
-        "OpenRouter request: {}",
-        serde_json::to_string_pretty(&openrouter_request)
-            .unwrap_or_else(|_| "Failed to serialize".to_string())
-    );
+    // Convert Anthropic request to OpenRouter format using explicit conversion
+    let openrouter_request = match conversion_ox::anthropic_openrouter::anthropic_to_openrouter_request(modified_request) {
+        Ok(req) => req,
+        Err(e) => {
+            return Err(error_handling::bad_request("Failed to convert request to OpenRouter format", &e));
+        }
+    };
 
-    // Create OpenRouter client from environment
-    let openrouter_client = OpenRouter::load_from_env().map_err(|e| {
-        error_handling::internal_error("Failed to load OpenRouter credentials from environment", &e)
-    })?;
+    let is_streaming = openrouter_request.stream.unwrap_or(false);
 
     if is_streaming {
-        // Handle streaming request without buffering
-        let stream = openrouter_client.stream(&openrouter_request);
-        let mut converter = StreamConverter::new();
+        // Handle streaming request using OpenRouter client
+        let stream = client.stream(&openrouter_request);
 
-        let event_stream = stream
-            .map(move |chunk_result| {
-                match chunk_result {
-                    Ok(chunk) => {
-                        // Convert OpenRouter chunk to Anthropic stream events
-                        let anthropic_events = converter.convert_chunk(chunk);
-                        let mut result = String::new();
-
-                        for event in anthropic_events {
-                            match serde_json::to_string(&event) {
-                                Ok(event_json) => {
-                                    result.push_str(&format!("data: {}\n\n", event_json));
-                                }
-                                Err(e) => {
-                                    error_handling::internal_error(
-                                        "Failed to serialize OpenRouter stream event",
-                                        &e,
-                                    );
-                                    return Err(std::io::Error::new(std::io::ErrorKind::Other, e));
-                                }
+        // Convert OpenRouter stream to Anthropic format using the stream converter
+        let mut converter = conversion_ox::anthropic_openrouter::streaming::AnthropicOpenRouterStreamConverter::new();
+        let converted_stream = stream
+            .map(move |chunk_result| match chunk_result {
+                Ok(chunk) => {
+                    let anthropic_events = converter.convert_chunk(chunk);
+                    // Convert each event to SSE format
+                    let events_json = anthropic_events
+                        .into_iter()
+                        .map(|event| match serde_json::to_string(&event) {
+                            Ok(json) => Ok(format!("data: {}\n\n", json)),
+                            Err(e) => {
+                                error_handling::internal_error("Failed to serialize stream event", &e);
+                                Err(std::io::Error::new(std::io::ErrorKind::Other, e))
                             }
-                        }
-                        Ok(result)
+                        })
+                        .collect::<Result<Vec<_>, _>>();
+                    
+                    match events_json {
+                        Ok(events) => Ok(events.join("")),
+                        Err(e) => Err(e)
                     }
-                    Err(e) => {
-                        error_handling::bad_gateway("OpenRouter stream error", &e);
-                        Err(std::io::Error::new(std::io::ErrorKind::Other, e))
-                    }
+                },
+                Err(e) => {
+                    error_handling::bad_gateway("OpenRouter stream error", &e);
+                    Err(std::io::Error::new(std::io::ErrorKind::Other, e))
                 }
             })
             .chain(futures_util::stream::once(async {
                 Ok("data: [DONE]\n\n".to_string())
             }));
 
-        let body = axum::body::Body::from_stream(event_stream);
-
-        // Return SSE response
+        // Create streaming response
+        let body = axum::body::Body::from_stream(converted_stream);
+        
         use axum::http::header;
         use axum::response::Response;
 
@@ -485,17 +483,19 @@ async fn handle_openrouter_request(
             })?;
         Ok(response)
     } else {
-        // Handle non-streaming request
-        match openrouter_client.send(&openrouter_request).await {
+        // Handle non-streaming request using OpenRouter client
+        match client.send(&openrouter_request).await {
             Ok(openrouter_response) => {
-                // Convert OpenRouter response to Anthropic response using conversion-ox
-                let anthropic_response: anthropic_ox::response::ChatResponse =
-                    openrouter_response.into();
-
+                // Convert OpenRouter response to Anthropic format using explicit conversion
+                let anthropic_response = match conversion_ox::anthropic_openrouter::openrouter_to_anthropic_response(openrouter_response) {
+                    Ok(resp) => resp,
+                    Err(e) => {
+                        return Err(error_handling::internal_error("Failed to convert OpenRouter response", &e));
+                    }
+                };
                 let response_json = serde_json::to_value(anthropic_response).map_err(|e| {
-                    error_handling::internal_error("Failed to serialize OpenRouter response", &e)
+                    error_handling::internal_error("Failed to serialize response", &e)
                 })?;
-
                 Ok(Json(response_json).into_response())
             }
             Err(e) => Err(error_handling::bad_gateway("OpenRouter request failed", &e)),
@@ -503,149 +503,160 @@ async fn handle_openrouter_request(
     }
 }
 
-/// Handle requests routed to Gemini
+/// Handle requests routed to Gemini with OAuth preference
 async fn handle_gemini_request(
     config: Arc<Mutex<Config>>,
     anthropic_request: ChatRequest,
     routing_decision: LegacyRoutingDecision,
     _headers: axum::http::HeaderMap,
 ) -> Result<axum::response::Response, StatusCode> {
-    info!(
-        "Request → Gemini: {} ({})",
-        anthropic_request.model, routing_decision.model
-    );
+    info!("Anthropic → Gemini: {} → {}", anthropic_request.model, routing_decision.model);
 
-    // Check if this is a streaming request (before converting)
-    let is_streaming = anthropic_request.stream.unwrap_or(false);
+    // Create Gemini client with OAuth preference
+    let client = match create_gemini_client(config.clone()).await {
+        Ok(client) => client,
+        Err(e) => {
+            return Err(error_handling::bad_gateway("Failed to create Gemini client", &e));
+        }
+    };
 
-    // Convert Anthropic request to Gemini request using conversion-ox
-    let mut gemini_request =
-        conversion_ox::anthropic_gemini::anthropic_to_gemini_request(anthropic_request.clone());
-    // Use the routed model name instead of the original
-    gemini_request.model = routing_decision.model;
+    // Update the model name to use the routed model (without provider prefix)
+    let mut modified_request = anthropic_request;
+    modified_request.model = routing_decision.model.clone();
 
-    // Log compacted request for debugging
-    let compacted_request = compact_request_for_logging(&serde_json::to_value(&gemini_request).unwrap_or_default());
-    tracing::debug!("Gemini request (compacted): {}", serde_json::to_string(&compacted_request).unwrap_or_default());
-
-    // Create Gemini client - prefer OAuth, fallback to API key
-    let gemini_client = create_gemini_client(config)
-        .await
-        .map_err(|e| error_handling::internal_error("Failed to create Gemini client", &e))?;
+    let is_streaming = modified_request.stream.unwrap_or(false);
+    
+    // Convert Anthropic request to Gemini format
+    let gemini_request = conversion_ox::anthropic_gemini::anthropic_to_gemini_request(modified_request);
 
     if is_streaming {
-        // Handle streaming request
-        let stream = gemini_request.stream(&gemini_client);
+        // Handle streaming request using Gemini request
+        let stream = gemini_request.stream(&client);
 
-        // Clone the request for error logging
-        let gemini_request_clone = gemini_request.clone();
-        
-        let event_stream = stream
-            .map(move |chunk_result| {
-                match chunk_result {
-                    Ok(gemini_response) => {
-                        // Convert Gemini response to Anthropic format
-                        let anthropic_response =
-                            conversion_ox::anthropic_gemini::gemini_to_anthropic_response(
-                                gemini_response,
-                            );
-
-                        // Format as Server-Sent Event
-                        let event_data = match serde_json::to_string(&anthropic_response) {
-                            Ok(json) => format!("data: {}\n\n", json),
-                            Err(e) => {
-                                tracing::error!("Failed to serialize Gemini response: {}", e);
-                                "data: {\"error\": \"Serialization failed\"}\n\n".to_string()
-                            }
-                        };
-                        Ok(event_data)
-                    }
-                    Err(e) => {
-                        tracing::error!("Gemini streaming error: {}", e);
-                        
-                        // Log detailed error information if available
-                        if let Ok(error_json) = serde_json::to_value(&e) {
-                            tracing::error!("Detailed Gemini streaming error: {}", serde_json::to_string_pretty(&error_json).unwrap_or_default());
+        // Convert Gemini stream to Anthropic format
+        let converted_stream = stream
+            .map(|event_result| match event_result {
+                Ok(gemini_event) => {
+                    let anthropic_event = conversion_ox::anthropic_gemini::gemini_to_anthropic_response(gemini_event);
+                    match serde_json::to_string(&anthropic_event) {
+                        Ok(event_json) => Ok(format!("data: {}\n\n", event_json)),
+                        Err(e) => {
+                            error_handling::internal_error("Failed to serialize stream event", &e);
+                            Err(std::io::Error::new(std::io::ErrorKind::Other, e))
                         }
-                        
-                        // Log the failed request for debugging (compacted)
-                        let failed_request_json = serde_json::to_value(&gemini_request_clone).unwrap_or_default();
-                        let compacted_failed_request = compact_request_for_logging(&failed_request_json);
-                        tracing::error!("Failed streaming request (compacted): {}", serde_json::to_string(&compacted_failed_request).unwrap_or_default());
-                        Err(std::io::Error::new(std::io::ErrorKind::Other, e))
                     }
+                },
+                Err(e) => {
+                    error_handling::bad_gateway("Gemini stream event error", &e);
+                    Err(std::io::Error::new(std::io::ErrorKind::Other, e))
                 }
             })
             .chain(futures_util::stream::once(async {
                 Ok("data: [DONE]\n\n".to_string())
             }));
 
-        let body = axum::body::Body::from_stream(event_stream);
+        // Create streaming response
+        let body = axum::body::Body::from_stream(converted_stream);
+        
+        use axum::http::header;
+        use axum::response::Response;
 
-        return Ok(axum::response::Response::builder()
-            .status(200)
-            .header("content-type", "text/event-stream")
-            .header("cache-control", "no-cache")
-            .header("connection", "keep-alive")
+        let response = Response::builder()
+            .header(header::CONTENT_TYPE, "text/event-stream")
+            .header(header::CACHE_CONTROL, "no-cache")
+            .header(header::CONNECTION, "keep-alive")
             .body(body)
-            .unwrap());
+            .map_err(|e| {
+                error_handling::internal_error("Failed to build streaming response", &e)
+            })?;
+        Ok(response)
     } else {
-        // Handle non-streaming request
-        match gemini_request.send(&gemini_client).await {
+        // Handle non-streaming request using Gemini request
+        match gemini_request.send(&client).await {
             Ok(gemini_response) => {
-                // Convert Gemini response to Anthropic response using conversion-ox
-                let anthropic_response =
-                    conversion_ox::anthropic_gemini::gemini_to_anthropic_response(gemini_response);
-
+                // Convert Gemini response to Anthropic format
+                let anthropic_response = conversion_ox::anthropic_gemini::gemini_to_anthropic_response(gemini_response);
                 let response_json = serde_json::to_value(anthropic_response).map_err(|e| {
-                    tracing::error!("Failed to serialize converted response: {}", e);
-                    error_handling::internal_error("Failed to serialize Gemini response", &e)
+                    error_handling::internal_error("Failed to serialize response", &e)
                 })?;
-
                 Ok(Json(response_json).into_response())
             }
-            Err(e) => {
-                tracing::error!("Gemini API request failed: {}", e);
-                
-                // Log detailed error information if available
-                if let Ok(error_json) = serde_json::to_value(&e) {
-                    tracing::error!("Detailed Gemini error: {}", serde_json::to_string_pretty(&error_json).unwrap_or_default());
-                }
-                
-                let compacted_failed_request = compact_request_for_logging(&serde_json::to_value(&gemini_request).unwrap_or_default());
-                tracing::error!("Failed request (compacted): {}", serde_json::to_string(&compacted_failed_request).unwrap_or_default());
-                Err(error_handling::internal_error("Gemini request failed", &e))
-            }
+            Err(e) => Err(error_handling::bad_gateway("Gemini request failed", &e)),
         }
     }
 }
 
-/// Create Gemini client with OAuth preference, fallback to API key
-async fn create_gemini_client(config: Arc<Mutex<Config>>) -> Result<Gemini, SetuError> {
+// All Gemini-related functions temporarily removed
+
+/// Create OpenRouter client with optional provider config
+async fn create_openrouter_client(config: Arc<Mutex<Config>>) -> Result<OpenRouter, SetuError> {
+    // Check for API key first
+    let api_key = std::env::var("OPENROUTER_API_KEY")
+        .map_err(|_| SetuError::Other("No OPENROUTER_API_KEY environment variable found".to_string()))?;
+
+    info!("💳 OpenRouter → API Key (pay-per-use billing)");
+
+    // Try to use provider config if available, otherwise use defaults
     let config_guard = config.lock().await;
+    if let Some(openrouter_provider) = config_guard.providers.get("openrouter") {
+        // Use configured endpoint if provided
+        let endpoint = &openrouter_provider.endpoint;
+        let client = OpenRouter::builder()
+            .api_key(api_key)
+            .base_url(endpoint)
+            .build();
+        Ok(client)
+    } else {
+        // Use default OpenRouter setup
+        let client = OpenRouter::builder()
+            .api_key(api_key)
+            .build();
+        Ok(client)
+    }
+}
 
-    // Try OAuth first (if configured)
-    if let Some(provider) = config_guard.providers.get("gemini") {
-        if let Some(oauth_token) = &provider.auth.oauth_access_token {
-            if !provider.auth.is_token_expired() {
-                tracing::info!("Using Gemini OAuth authentication");
+/// Create Gemini client with optional provider config (OAuth preferred, API key fallback)
+async fn create_gemini_client(config: Arc<Mutex<Config>>) -> Result<Gemini, SetuError> {
+    use crate::auth::google::GoogleOAuth;
 
-                return if let Some(project_id) = &provider.auth.project_id {
-                    tracing::info!("Creating Gemini client with project_id: {}", project_id);
-                    Ok(Gemini::with_oauth_token_and_project(
-                        oauth_token.clone(),
-                        project_id.clone(),
-                    ))
-                } else {
-                    tracing::info!("Creating Gemini client without project_id");
-                    Ok(Gemini::with_oauth_token(oauth_token.clone()))
-                };
-            }
+    // Try OAuth first (Gemini CLI, then setu config)
+    
+    // 1. Try Gemini CLI OAuth
+    if let Ok(gemini_config) = GoogleOAuth::try_gemini_cli_credentials() {
+        if let Some(oauth_token) = gemini_config.oauth_access_token {
+            info!("🔐 Gemini → OAuth via Gemini CLI (subscription billing)");
+            let client = Gemini::builder()
+                .oauth_token(oauth_token)
+                .project_id("pioneering-trilogy-xq6tl") // Cloud Code Assist API project
+                .build();
+            return Ok(client);
         }
     }
 
-    // Fallback to API key from environment
-    tracing::info!("Using Gemini API key authentication");
-    Gemini::load_from_env()
-        .map_err(|e| SetuError::Other(format!("Failed to load Gemini credentials: {}. Set GEMINI_API_KEY environment variable or run 'setu auth google'", e)))
+    // 2. Try setu config OAuth (if provider configured)
+    let config_guard = config.lock().await;
+    if let Some(gemini_provider) = config_guard.providers.get("gemini") {
+        if let Some(oauth_token) = &gemini_provider.auth.oauth_access_token {
+            info!("🔐 Gemini → OAuth via setu config (subscription billing)");
+            let client = Gemini::builder()
+                .oauth_token(oauth_token.clone())
+                .project_id("pioneering-trilogy-xq6tl") // Cloud Code Assist API project
+                .build();
+            return Ok(client);
+        }
+    }
+    drop(config_guard); // Release lock
+
+    // 3. Fall back to API key from environment
+    match Gemini::load_from_env() {
+        Ok(client) => {
+            info!("💳 Gemini → API Key (pay-per-use billing)");
+            Ok(client)
+        }
+        Err(_) => {
+            Err(SetuError::Other(
+                "No Gemini credentials found - set GEMINI_API_KEY/GOOGLE_AI_API_KEY environment variable or configure OAuth".to_string()
+            ))
+        }
+    }
 }
