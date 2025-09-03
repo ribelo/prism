@@ -62,6 +62,7 @@ async fn create_test_app_state() -> AppState {
 
 /// Test request parsing edge cases
 #[tokio::test]
+#[ignore] // Integration test that makes network calls
 async fn test_request_parsing_edge_cases() {
     let app_state = create_test_app_state().await;
 
@@ -190,6 +191,7 @@ async fn test_routing_edge_cases() {
 
 /// Test authentication edge cases
 #[tokio::test]
+#[ignore] // Integration test that makes network calls
 async fn test_authentication_edge_cases() {
     let app_state = create_test_app_state().await;
 
@@ -257,6 +259,7 @@ async fn test_authentication_edge_cases() {
 
 /// Test Claude Code detection edge cases
 #[tokio::test]
+#[ignore] // Integration test that makes network calls
 async fn test_claude_code_detection() {
     let app_state = create_test_app_state().await;
 
@@ -313,6 +316,7 @@ async fn test_claude_code_detection() {
 
 /// Test OpenAI endpoint behaviors
 #[tokio::test]
+#[ignore] // Integration test that makes network calls
 async fn test_openai_endpoints() {
     let app_state = create_test_app_state().await;
     
@@ -338,6 +342,7 @@ async fn test_openai_endpoints() {
 
 /// Test streaming request edge cases
 #[tokio::test]
+#[ignore] // Integration test that makes network calls
 async fn test_streaming_edge_cases() {
     let app_state = create_test_app_state().await;
 
