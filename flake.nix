@@ -34,7 +34,7 @@
             buildInputs = buildInputs;
 
             shellHook = ''
-              echo "🔧 Setu development environment loaded!"
+              echo "Setu development environment loaded!"
               echo "Using nightly Rust toolchain"
             '';
           };

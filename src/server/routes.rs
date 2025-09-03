@@ -55,38 +55,6 @@ use conversion_ox::anthropic_openrouter::streaming::StreamConverter;
 use gemini_ox::Gemini;
 use openrouter_ox::OpenRouter;
 
-/// Check if request is from Claude Code CLI
-fn is_claude_code_request(headers: &axum::http::HeaderMap) -> bool {
-    // Check user-agent for Claude Code
-    if let Some(user_agent) = headers.get("user-agent") {
-        if let Ok(ua_str) = user_agent.to_str() {
-            if ua_str.starts_with("claude-cli/") {
-                return true;
-            }
-        }
-    }
-
-    // Check x-app header
-    if let Some(x_app) = headers.get("x-app") {
-        if let Ok(app_str) = x_app.to_str() {
-            if app_str == "cli" {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
-/// Check if authorization header contains an API key (starts with sk-)
-fn has_api_key_auth(headers: &axum::http::HeaderMap) -> bool {
-    if let Some(auth) = headers.get("authorization") {
-        if let Ok(auth_str) = auth.to_str() {
-            return auth_str.starts_with("Bearer sk-");
-        }
-    }
-    false
-}
 
 /// Transform anthropic-beta header to include OAuth beta flag
 fn transform_anthropic_beta_header(existing_beta: Option<&str>) -> String {
@@ -162,7 +130,7 @@ async fn handle_oauth_request(
     info!("Claude Code → Anthropic OAuth: {}", chat_request.model);
 
     // Smart token selection - compare both sources
-    let (oauth_token, token_source) = {
+    let (oauth_token, _token_source) = {
         let config_guard = config.lock().await;
         let setu_auth_config = config_guard
             .providers
@@ -183,7 +151,7 @@ async fn handle_oauth_request(
             });
 
         let chosen = choose_best_token_source(&setu_info, &claude_info);
-        tracing::debug!("🚀 Request-level token decision: {}", chosen);
+        tracing::debug!("Request-level token decision: {}", chosen);
 
         match chosen.source.as_str() {
             "Claude Code" => {
@@ -552,16 +520,13 @@ async fn handle_gemini_request(
 
     // Convert Anthropic request to Gemini request using conversion-ox
     let mut gemini_request =
-        conversion_ox::anthropic_gemini::anthropic_to_gemini_request(anthropic_request);
+        conversion_ox::anthropic_gemini::anthropic_to_gemini_request(anthropic_request.clone());
     // Use the routed model name instead of the original
     gemini_request.model = routing_decision.model;
 
-    // Debug: Log the converted request
-    tracing::debug!(
-        "Gemini request: {}",
-        serde_json::to_string_pretty(&gemini_request)
-            .unwrap_or_else(|_| "Failed to serialize".to_string())
-    );
+    // Log compacted request for debugging
+    let compacted_request = compact_request_for_logging(&serde_json::to_value(&gemini_request).unwrap_or_default());
+    tracing::debug!("Gemini request (compacted): {}", serde_json::to_string(&compacted_request).unwrap_or_default());
 
     // Create Gemini client - prefer OAuth, fallback to API key
     let gemini_client = create_gemini_client(config)
@@ -572,8 +537,11 @@ async fn handle_gemini_request(
         // Handle streaming request
         let stream = gemini_request.stream(&gemini_client);
 
+        // Clone the request for error logging
+        let gemini_request_clone = gemini_request.clone();
+        
         let event_stream = stream
-            .map(|chunk_result| {
+            .map(move |chunk_result| {
                 match chunk_result {
                     Ok(gemini_response) => {
                         // Convert Gemini response to Anthropic format
@@ -594,6 +562,16 @@ async fn handle_gemini_request(
                     }
                     Err(e) => {
                         tracing::error!("Gemini streaming error: {}", e);
+                        
+                        // Log detailed error information if available
+                        if let Ok(error_json) = serde_json::to_value(&e) {
+                            tracing::error!("Detailed Gemini streaming error: {}", serde_json::to_string_pretty(&error_json).unwrap_or_default());
+                        }
+                        
+                        // Log the failed request for debugging (compacted)
+                        let failed_request_json = serde_json::to_value(&gemini_request_clone).unwrap_or_default();
+                        let compacted_failed_request = compact_request_for_logging(&failed_request_json);
+                        tracing::error!("Failed streaming request (compacted): {}", serde_json::to_string(&compacted_failed_request).unwrap_or_default());
                         Err(std::io::Error::new(std::io::ErrorKind::Other, e))
                     }
                 }
@@ -620,13 +598,22 @@ async fn handle_gemini_request(
                     conversion_ox::anthropic_gemini::gemini_to_anthropic_response(gemini_response);
 
                 let response_json = serde_json::to_value(anthropic_response).map_err(|e| {
+                    tracing::error!("Failed to serialize converted response: {}", e);
                     error_handling::internal_error("Failed to serialize Gemini response", &e)
                 })?;
 
                 Ok(Json(response_json).into_response())
             }
             Err(e) => {
-                tracing::error!("Gemini request failed: {}", e);
+                tracing::error!("Gemini API request failed: {}", e);
+                
+                // Log detailed error information if available
+                if let Ok(error_json) = serde_json::to_value(&e) {
+                    tracing::error!("Detailed Gemini error: {}", serde_json::to_string_pretty(&error_json).unwrap_or_default());
+                }
+                
+                let compacted_failed_request = compact_request_for_logging(&serde_json::to_value(&gemini_request).unwrap_or_default());
+                tracing::error!("Failed request (compacted): {}", serde_json::to_string(&compacted_failed_request).unwrap_or_default());
                 Err(error_handling::internal_error("Gemini request failed", &e))
             }
         }
@@ -644,11 +631,13 @@ async fn create_gemini_client(config: Arc<Mutex<Config>>) -> Result<Gemini, Setu
                 tracing::info!("Using Gemini OAuth authentication");
 
                 return if let Some(project_id) = &provider.auth.project_id {
+                    tracing::info!("Creating Gemini client with project_id: {}", project_id);
                     Ok(Gemini::with_oauth_token_and_project(
                         oauth_token.clone(),
                         project_id.clone(),
                     ))
                 } else {
+                    tracing::info!("Creating Gemini client without project_id");
                     Ok(Gemini::with_oauth_token(oauth_token.clone()))
                 };
             }

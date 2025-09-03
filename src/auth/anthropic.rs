@@ -255,14 +255,12 @@ impl AnthropicOAuth {
         Ok(())
     }
 
-    /// Validate that OAuth tokens are present and can be refreshed if needed
-    /// Compares setu and Claude Code tokens, always choosing the newer one with full rationale
+    /// Validate OAuth tokens - use newest available, fail if none valid
     pub async fn validate_auth_config(auth_config: &mut AuthConfig) -> Result<()> {
         let setu_token_info = analyze_token_source("setu config", auth_config);
         let claude_token_info = Self::try_claude_code_credentials()
             .map(|config| analyze_token_source("Claude Code", &config))
-            .unwrap_or_else(|e| {
-                tracing::debug!("Claude Code credentials unavailable: {}", e);
+            .unwrap_or_else(|_| {
                 TokenInfo {
                     source: "Claude Code".to_string(),
                     available: false,
@@ -272,78 +270,40 @@ impl AnthropicOAuth {
                 }
             });
 
-        tracing::info!("🔍 Token Analysis:");
-        tracing::info!("  📋 Setu config: {}", setu_token_info);
-        tracing::info!("  🤖 Claude Code: {}", claude_token_info);
-
-        // Choose the best token source
         let chosen_source = choose_best_token_source(&setu_token_info, &claude_token_info);
-        tracing::info!("✅ Decision: {}", chosen_source);
+        tracing::info!("Using {} tokens", chosen_source.source);
 
         match chosen_source.source.as_str() {
             "Claude Code" => {
-                if let Ok(claude_config) = Self::try_claude_code_credentials() {
-                    *auth_config = claude_config;
-                    return Ok(());
-                }
+                *auth_config = Self::try_claude_code_credentials()?;
             }
             "setu config" => {
                 // Use existing setu tokens - validation continues below
             }
-            "none" => {
+            _ => {
                 return Err(SetuError::Other(
-                    "❌ No valid OAuth tokens found from any source\n\n\
-                     🔧 To fix this issue, you have two options:\n\
-                     1. Run: setu auth anthropic    (get fresh setu tokens)\n\
-                     2. Start Claude Code first     (use Claude Code's tokens)\n\n\
-                     💡 Setu will automatically use whichever tokens are newer.".to_string(),
+                    "No valid OAuth tokens available. Run 'setu auth anthropic' or start Claude Code first.".to_string(),
                 ));
             }
-            _ => {
-                // Both tokens are expired - fail startup with clear instructions
-                if setu_token_info.is_expired && claude_token_info.is_expired {
-                    return Err(SetuError::Other(format!(
-                        "❌ All OAuth tokens are expired!\n\n\
-                         📊 Token Status:\n\
-                         • Setu config: {}\n\
-                         • Claude Code: {}\n\n\
-                         🔧 To fix this issue, you have two options:\n\
-                         1. Run: setu auth anthropic    (get fresh setu tokens)\n\
-                         2. Start Claude Code first     (refresh Claude Code's tokens)\n\n\
-                         💡 Setu will automatically use whichever tokens are newer.",
-                        setu_token_info,
-                        claude_token_info
-                    )));
-                }
-                
-                return Err(SetuError::Other(format!(
-                    "Unexpected token selection result: {}", chosen_source.source
-                )));
-            }
         }
 
-        // Check if we have refresh token
-        let _refresh_token = auth_config.oauth_refresh_token.as_ref().ok_or_else(|| {
-            SetuError::Other(
-                "No OAuth refresh token found. Please run 'setu auth anthropic' to authenticate."
-                    .to_string(),
-            )
-        })?;
-
-        // If access token is missing or expired, try to refresh
-        if auth_config.oauth_access_token.is_none() || auth_config.is_token_expired() {
-            tracing::info!("OAuth access token is missing or expired, attempting refresh...");
-            Self::refresh_token(auth_config).await?;
-        }
-
-        // Verify we now have a valid access token
-        if auth_config.oauth_access_token.is_none() {
+        // Ensure we have valid tokens
+        if auth_config.oauth_refresh_token.is_none() {
             return Err(SetuError::Other(
-                "No OAuth access token available after refresh attempt.".to_string(),
+                "No refresh token available. Run 'setu auth anthropic'.".to_string(),
             ));
         }
 
-        tracing::info!("Anthropic OAuth tokens validated successfully");
+        if auth_config.oauth_access_token.is_none() || auth_config.is_token_expired() {
+            Self::refresh_token(auth_config).await?;
+        }
+
+        if auth_config.oauth_access_token.is_none() {
+            return Err(SetuError::Other(
+                "Failed to obtain valid access token.".to_string(),
+            ));
+        }
+
         Ok(())
     }
 

@@ -128,6 +128,8 @@ ANTHROPIC_BASE_URL=http://localhost:3742 claude --model openrouter/z-ai/glm-4.5 
 # Claude CLI will still send claude-3-5-haiku-20241022 instead of openrouter/z-ai/glm-4.5
 ```
 
+This is a limitation of the Claude CLI itself, not setu. The CLI hardcodes its model selection logic and bypasses the `--model` parameter when a custom base URL is provided.
+
 To test different model routing through setu, you would need to:
 1. Use a different client that respects custom models with custom base URLs
 2. Test setu's routing logic directly via HTTP requests
@@ -138,6 +140,22 @@ To test different model routing through setu, you would need to:
 - Unit tests in `tests/` directory
 - Test individual configs with `cargo test --test <test_name>`
 - Integration tests for routing and API transformation logic
+
+## Debugging & Logging
+
+### Request Logging
+Setu includes a `compact_request_for_logging()` function that truncates large request payloads for debugging:
+- Truncates text fields > 100 characters to 97 chars + "..."
+- Preserves important structural fields: `model`, `role`, `type`, `id`, `name`
+- Recursively compacts nested objects and arrays
+- Used automatically in error logging for failed requests
+
+### Error Investigation
+When investigating Gemini API errors:
+1. Check logs for "Failed streaming request (compacted)" entries
+2. Look for "Invalid resource field value" errors indicating schema issues
+3. The compacted request shows the structure without overwhelming detail
+4. Focus on tool schemas, property names, and field formats that might be incompatible with Gemini
 
 ## Code Quality Standards
 

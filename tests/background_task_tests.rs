@@ -21,6 +21,7 @@ fn test_token_needs_refresh_logic() {
         oauth_access_token: Some("token".to_string()),
         oauth_refresh_token: Some("refresh".to_string()),
         oauth_expires: Some(soon_expiry),
+        project_id: None,
     };
 
     assert!(auth_config.needs_refresh());
@@ -36,6 +37,7 @@ fn test_token_needs_refresh_logic() {
         oauth_access_token: Some("token".to_string()),
         oauth_refresh_token: Some("refresh".to_string()),
         oauth_expires: Some(future_expiry),
+        project_id: None,
     };
 
     assert!(!auth_config_future.needs_refresh());
@@ -56,6 +58,7 @@ fn test_token_expiry_detection() {
         oauth_access_token: Some("token".to_string()),
         oauth_refresh_token: Some("refresh".to_string()),
         oauth_expires: Some(expired_time),
+        project_id: None,
     };
 
     assert!(auth_config.is_token_expired());
@@ -71,6 +74,7 @@ fn test_token_expiry_detection() {
         oauth_access_token: Some("token".to_string()),
         oauth_refresh_token: Some("refresh".to_string()),
         oauth_expires: Some(future_time),
+        project_id: None,
     };
 
     assert!(!auth_config_valid.is_token_expired());
@@ -94,6 +98,7 @@ fn create_test_config() -> Config {
                         .as_millis() as u64
                         + 300_000, // 5 minutes from now
                 ),
+                project_id: None,
             },
         },
     );
@@ -103,6 +108,13 @@ fn create_test_config() -> Config {
         providers,
         routing: RoutingConfig {
             default_provider: "anthropic".to_string(),
+            strategy: "composite".to_string(),
+            enable_fallback: true,
+            min_confidence: 0.0,
+            rules: HashMap::new(),
+            provider_priorities: Vec::new(),
+            provider_capabilities: HashMap::new(),
+            provider_aliases: HashMap::new(),
         },
         auth: HashMap::new(),
     }
