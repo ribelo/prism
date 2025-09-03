@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        
+      - name: Run tests
+        run: cargo test
+
+  build:
+    name: Build Release Binaries
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: setu-linux-x86_64
+            
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            name: setu-macos-aarch64
+            
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            name: setu-windows-x86_64.exe
+
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+          
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+        
+      - name: Rename binary (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cp target/${{ matrix.target }}/release/setu ${{ matrix.name }}
+          
+      - name: Rename binary (Windows)  
+        if: matrix.os == 'windows-latest'
+        run: |
+          cp target/${{ matrix.target }}/release/setu.exe ${{ matrix.name }}
+          
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            setu-linux-x86_64/setu-linux-x86_64
+            setu-macos-aarch64/setu-macos-aarch64  
+            setu-windows-x86_64.exe/setu-windows-x86_64.exe
+          generate_release_notes: true
+          draft: false
+          prerelease: false
