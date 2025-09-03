@@ -8,18 +8,20 @@ Universal AI model router - local HTTP proxy for AI providers.
 
 **Every other router sucks at OAuth.** You get XOR: use Anthropic models with OAuth *or* use other models with a router, but never both. That's stupid.
 
-**Available routers have garbage model configs.** Setu gives you automatic full name resolving with URL-like parameters: `openrouter/z-ai/glm-4.5:fireworks?temperature=0.7&max_tokens=2000&top_k=40`
+**Available routers have garbage model configs.** Sure, you can usually edit the whole response, but that's messy boilerplate hell. Setu gives you URL-like model parameters that actually fucking work: `openrouter/z-ai/glm-4.5:fireworks?temperature=0.7&max_tokens=2000&top_k=40`. Set all provider parameters through the model string. Map any alias to full model configs. Clean, concise, and gets shit done. No JSON wrestling, no config file hunting - just append your params and go. Worse is better.
 
-**Every app can use every model.** OAuth support for Claude, Codex, and Gemini. Simple proxy means any model works through any interface. Want GPT in Claude Code? Done. Want Claude in Codex? Done. Wan't to use CRUSH? Done. No more vendor lock-in bullshit. This definitely violate TOS and you should never use it, but you can. If they block your account, don't come crying.
+**Every app can use every model.** OAuth support for Claude, Codex, and Gemini. Simple proxy means any model works through any interface. Want GPT-5 in Claude Code? Done. Want to use Claude Max plan in Codex CLI? Done. Want to use whatever the fuck CRUSH is? Done. No more vendor lock-in bullshit.
+
+**This definitely violates every provider's TOS.** You should absolutely never use this. When (not if) they detect the proxy and block your account, don't come crying. I warned you. Use at your own risk and don't blame me when your $200/month Claude subscription gets nuked because you wanted to use it with some random AI editor that definitely looks suspicious in their logs.
 
 ## What it does
 
 **Transparent request transformation.** Use Gemini models on Anthropic endpoints (`/v1/messages`), or DeepSeek models on OpenAI endpoints (`/v1/chat/completions`). Like locally-hosted OpenRouter.
 
 **Three endpoints supported:**
-- `/v1/chat/completions` (OpenAI format) - Routes to OpenRouter providers
-- `/v1/messages` (Anthropic format) - Routes to all providers with format conversion
-- `/v1beta/models/{model}:generateContent` (Gemini format) - Routes to all providers with format conversion
+- `/v1/chat/completions` expect OpenAI format
+- `/v1/messages` expect Anthropic format
+- `/v1beta/models/{model}:generateContent` expect Gemini format
 
 **Model routing with fallbacks.** Request `{model}` get `["anthropic/claude-3-5-sonnet", "openai/gpt-4o"]` fallback chain.
 
@@ -31,15 +33,13 @@ Universal AI model router - local HTTP proxy for AI providers.
 
 ## How this was made
 
-**This entire thing was coded by AI.** I didn't write a single fucking line of code myself. Just vibed with Claude and GPT until it worked.
+**This entire thing was coded by AI.** I didn't write a single fucking line of code myself. Just vibed with Claude and GPT until it worked. Pure dogfooding - using AI to build AI tooling. I heard that every time someone vibe-codes in Rust, a crab dies. So if you have mercy, don't do this.
 
-**Every crab that dies is on me.** I heard that every time someone vibe-codes in Rust, a crab dies. So if you have mercy, don't do this.
-
-**The ai-ox library underneath are mostly human work though.** So it's not complete AI slop, just the glue code that connects everything together and expose it as axum server.
+**The ai-ox library underneath are "mostly" human work though.** So it's not complete AI slop, just the glue code that connects everything together and expose it as axum server.
 
 **Probably full of outdated info and AI hallucinations everywhere.** But it works and was extensively tested by a human. Problem: that human is an ADHD autist and n=1, so your mileage may vary.
 
-**Don't take this too seriously.** It's a "weekend" project that got out of hand. Works for what I need it to do. If it breaks your setup, that's a you problem.
+**Don't take this too seriously.** It's a weekend project that got out of hand. Works for what I need it to do. If it breaks your setup, that's a you problem.
 
 ## Testing Status
 
