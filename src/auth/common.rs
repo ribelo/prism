@@ -111,7 +111,10 @@ pub async fn oauth_tokens_exist_anywhere() -> bool {
     // Check Gemini CLI tokens  
     let gemini_exists = crate::auth::google::GoogleOAuth::try_gemini_cli_credentials().await.is_ok();
     
-    claude_exists || gemini_exists
+    // Check OpenAI/codex CLI tokens
+    let openai_exists = crate::auth::openai::OpenAIOAuth::try_codex_cli_credentials().await.is_ok();
+    
+    claude_exists || gemini_exists || openai_exists
 }
 
 /// Choose the best token source based on availability and freshness

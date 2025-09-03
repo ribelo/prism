@@ -16,6 +16,9 @@ pub enum SetuError {
     #[error("JSON serialization error: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("HTTP request error: {0}")]
+    Request(#[from] reqwest::Error),
+
     #[error("AI provider error: {0}")]
     Provider(String),
 

@@ -1,6 +1,7 @@
 pub mod anthropic;
 pub mod common;
 pub mod google;
+pub mod openai;
 
 use crate::config::AuthConfig;
 use crate::error::{Result, SetuError};
@@ -11,6 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct AuthCache {
     pub anthropic_method: AuthMethod,
     pub gemini_method: AuthMethod,
+    pub openai_method: AuthMethod,
     pub cached_at: SystemTime,
 }
 
@@ -21,6 +23,8 @@ pub enum AuthMethod {
     OAuth { source: String, token: String },
     /// API key authentication (no OAuth tokens available)
     ApiKey,
+    /// Provider unavailable (no tokens found or expired)
+    Unavailable { reason: String },
 }
 
 pub trait AuthProvider {
@@ -71,11 +75,15 @@ pub async fn initialize_auth_cache() -> Result<AuthCache> {
     // Check Gemini tokens - fail startup if expired
     let gemini_method = determine_gemini_auth_method().await?;
     
+    // Check OpenAI tokens - don't fail startup if unavailable 
+    let openai_method = determine_openai_auth_method().await?;
+    
     info!("Authentication methods cached at startup");
     
     Ok(AuthCache {
         anthropic_method,
         gemini_method,
+        openai_method,
         cached_at,
     })
 }
@@ -186,4 +194,45 @@ async fn determine_gemini_auth_method() -> Result<AuthMethod> {
            2. Run: setu auth google      (set up OAuth tokens)\n\n\
          If Gemini CLI is not installed, you may need to set up Google OAuth.".to_string(),
     ))
+}
+
+/// Determine the best OpenAI authentication method  
+async fn determine_openai_auth_method() -> Result<AuthMethod> {
+    use crate::auth::openai::OpenAIOAuth;
+    use tracing::info;
+    
+    // Try to load codex CLI tokens
+    let codex_cli_result = OpenAIOAuth::try_codex_cli_credentials().await;
+    
+    if let Ok(openai_config) = codex_cli_result {
+        // Tokens are valid and not expired
+        info!("Found valid codex CLI OAuth tokens");
+        
+        if let Some(token) = openai_config.oauth_access_token {
+            return Ok(AuthMethod::OAuth {
+                source: "codex CLI".to_string(),
+                token,
+            });
+        }
+    } else {
+        // Check if it's a specific expiration error
+        if let Err(ref error) = codex_cli_result {
+            let error_str = error.to_string();
+            if error_str.contains("expired") {
+                use tracing::warn;
+                warn!("Found expired codex CLI OAuth tokens - will continue without OpenAI");
+                // For OpenAI, we don't fail startup - it's optional
+                return Ok(AuthMethod::Unavailable {
+                    reason: "OAuth tokens expired".to_string(),
+                });
+            } else {
+                info!("No codex CLI OAuth tokens found - OpenAI unavailable");
+            }
+        }
+    }
+    
+    // No OAuth tokens found - OpenAI is simply unavailable (not an error)
+    Ok(AuthMethod::Unavailable {
+        reason: "No OAuth tokens found".to_string(),
+    })
 }

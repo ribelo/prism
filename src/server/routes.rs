@@ -7,7 +7,7 @@ use futures_util::StreamExt;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::{info, error};
 
 use crate::{
     config::Config,
@@ -230,6 +230,9 @@ async fn handle_oauth_request(
         crate::auth::AuthMethod::OAuth { token, .. } => token.clone(),
         crate::auth::AuthMethod::ApiKey => {
             return Err(error_handling::unauthorized("OAuth method expected but API key method was cached"));
+        }
+        crate::auth::AuthMethod::Unavailable { reason } => {
+            return Err(error_handling::unauthorized(&format!("OAuth method unavailable: {}", reason)));
         }
     };
 
@@ -520,6 +523,10 @@ pub async fn anthropic_messages(
         crate::auth::AuthMethod::ApiKey => {
             info!("💳 Anthropic → API Key (pay-per-use billing) → {}", chat_request.model);
             handle_direct_anthropic_request(chat_request, routing_decision, parts).await
+        }
+        crate::auth::AuthMethod::Unavailable { reason } => {
+            error!("Anthropic authentication unavailable: {}", reason);
+            Err(StatusCode::UNAUTHORIZED)
         }
     }
 }

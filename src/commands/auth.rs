@@ -11,12 +11,16 @@ pub enum AuthCommands {
 
     /// Authenticate with Google/Gemini using CLI credentials
     Google,
+
+    /// Check OpenAI/codex CLI OAuth credentials
+    Openai,
 }
 
 pub async fn handle_auth_command(auth_command: AuthCommands) -> Result<()> {
     match auth_command {
         AuthCommands::Anthropic => handle_anthropic_auth().await,
         AuthCommands::Google => handle_google_auth().await,
+        AuthCommands::Openai => handle_openai_auth().await,
     }
 }
 
@@ -139,6 +143,68 @@ async fn handle_google_auth() -> Result<()> {
             println!("3. Then retry: setu auth google");
             println!();
             println!("Alternatively, set GEMINI_API_KEY environment variable to use API key authentication.");
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_openai_auth() -> Result<()> {
+    use crate::auth::openai::OpenAIOAuth;
+
+    println!("Checking OpenAI/codex CLI authentication...");
+
+    // Load current config
+    let mut config = Config::load().unwrap_or_default();
+
+    // Try to read existing codex CLI credentials
+    match OpenAIOAuth::try_codex_cli_credentials().await {
+        Ok(auth_config) => {
+            // Save to config
+            let mut provider_config = config.providers.get("openai").cloned().unwrap_or_else(|| {
+                crate::config::ProviderConfig {
+                    r#type: "openai".to_string(),
+                    endpoint: "https://api.openai.com".to_string(),
+                    models: vec![
+                        "gpt-4o".to_string(),
+                        "gpt-4o-mini".to_string(),
+                        "gpt-4".to_string(),
+                        "o1-preview".to_string(),
+                        "o1-mini".to_string(),
+                    ],
+                    auth: auth_config.clone(),
+                }
+            });
+            provider_config.auth = auth_config;
+            config
+                .providers
+                .insert("openai".to_string(), provider_config);
+
+            // Save config
+            config.save()?;
+
+            println!("OpenAI authentication successful!");
+            println!("   OAuth tokens loaded from codex CLI credentials.");
+            println!("   You can now use OpenAI models through Setu.");
+            
+            // Show token refresh info
+            println!();
+            println!("Token Info:");
+            println!("   • Tokens are automatically refreshed every 28 days");
+            println!("   • Access token expires and refreshes as needed");
+            println!("   • Shared with codex CLI (~/.codex/auth.json)");
+        }
+        Err(e) => {
+            println!("Could not load codex CLI OAuth credentials: {}", e);
+            println!();
+            println!("To use OpenAI with OAuth:");
+            println!("1. Install the codex CLI from OpenAI");
+            println!("2. Run: codex auth login");
+            println!("3. Then retry: setu auth openai");
+            println!();
+            println!("Alternatively, set OPENAI_API_KEY environment variable to use API key authentication.");
+            println!();
+            println!("Note: codex CLI provides OAuth tokens for ChatGPT Pro/Plus/Enterprise users.");
         }
     }
 
