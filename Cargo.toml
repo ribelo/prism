@@ -48,12 +48,12 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 jsonwebtoken = "9.3"
 
 # ai-ox subcrates (GitHub dependency) - using only the subcrates we actually need
-anthropic-ox = { git = "https://github.com/ribelo/ai-ox.git" }
-gemini-ox = { git = "https://github.com/ribelo/ai-ox.git" }
-openrouter-ox = { git = "https://github.com/ribelo/ai-ox.git" }
-openai-ox = { git = "https://github.com/ribelo/ai-ox.git" }
-ai-ox-common = { git = "https://github.com/ribelo/ai-ox.git" }
-conversion-ox = { git = "https://github.com/ribelo/ai-ox.git", features = ["anthropic-gemini", "anthropic-openrouter"] }
+anthropic-ox = { git = "https://github.com/ribelo/ai-ox.git", rev = "009017a7ccbd6b087a31ee5f52e6a921e22fcaa1" }
+gemini-ox = { git = "https://github.com/ribelo/ai-ox.git", rev = "009017a7ccbd6b087a31ee5f52e6a921e22fcaa1" }
+openrouter-ox = { git = "https://github.com/ribelo/ai-ox.git", rev = "009017a7ccbd6b087a31ee5f52e6a921e22fcaa1" }
+openai-ox = { git = "https://github.com/ribelo/ai-ox.git", rev = "009017a7ccbd6b087a31ee5f52e6a921e22fcaa1" }
+ai-ox-common = { git = "https://github.com/ribelo/ai-ox.git", rev = "009017a7ccbd6b087a31ee5f52e6a921e22fcaa1" }
+conversion-ox = { git = "https://github.com/ribelo/ai-ox.git", rev = "009017a7ccbd6b087a31ee5f52e6a921e22fcaa1", features = ["anthropic-gemini", "anthropic-openrouter"] }
 
 [profile.release]
 opt-level = "z"         # Optimize for size
