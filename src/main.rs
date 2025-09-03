@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use setu::commands::auth::AuthCommands;
+use setu::commands::run::RunCommands;
 use setu::{Config, Result};
 use tracing::{error, info};
 
@@ -46,10 +47,20 @@ enum Commands {
 
     /// Diagnose OAuth token issues
     Diagnose,
+
+    /// Run applications with Setu as backend
+    Run {
+        #[command(subcommand)]
+        run_command: RunCommands,
+    },
 }
 
 async fn handle_auth_command(auth_command: AuthCommands) -> Result<()> {
     setu::commands::auth::handle_auth_command(auth_command).await
+}
+
+async fn handle_run_command(run_command: RunCommands) -> Result<()> {
+    setu::commands::run::handle_run_command(run_command).await
 }
 
 
@@ -73,6 +84,7 @@ async fn main() -> Result<()> {
         Commands::Config => validate_config().await,
         Commands::Auth { auth_command } => handle_auth_command(auth_command).await,
         Commands::Diagnose => diagnose_tokens().await,
+        Commands::Run { run_command } => handle_run_command(run_command).await,
     }
 }
 
