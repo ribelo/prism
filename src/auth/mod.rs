@@ -1,4 +1,6 @@
 pub mod anthropic;
+pub mod common;
+pub mod google;
 
 use crate::config::AuthConfig;
 use crate::error::{Result, SetuError};
@@ -19,7 +21,9 @@ impl AuthProvider for AuthConfig {
         if let Some(oauth_token) = &self.oauth_access_token {
             Ok(format!("Bearer {}", oauth_token))
         } else {
-            Err(SetuError::Config(figment::Error::from("No OAuth credentials found in config. API keys should be set via environment variables.")))
+            Err(SetuError::Config(figment::Error::from(
+                "No OAuth credentials found in config. API keys should be set via environment variables.",
+            )))
         }
     }
 

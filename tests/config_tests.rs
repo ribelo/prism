@@ -1,4 +1,4 @@
-use setu::config::{Config, ServerConfig, ProviderConfig, RoutingConfig, AuthConfig};
+use setu::config::{AuthConfig, Config, ProviderConfig, RoutingConfig, ServerConfig};
 use std::collections::HashMap;
 
 #[test]
@@ -14,12 +14,15 @@ fn test_default_config() {
 #[test]
 fn test_config_with_providers() {
     let mut providers = HashMap::new();
-    providers.insert("test_provider".to_string(), ProviderConfig {
-        r#type: "openrouter".to_string(),
-        endpoint: "https://test.com".to_string(),
-        models: vec!["test-model".to_string()],
-        auth: AuthConfig::default(),
-    });
+    providers.insert(
+        "test_provider".to_string(),
+        ProviderConfig {
+            r#type: "openrouter".to_string(),
+            endpoint: "https://test.com".to_string(),
+            models: vec!["test-model".to_string()],
+            auth: AuthConfig::default(),
+        },
+    );
 
     let config = Config {
         server: ServerConfig {

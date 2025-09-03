@@ -4,28 +4,34 @@ use axum::{
     http::{HeaderMap, Request, StatusCode},
 };
 use serde_json::json;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use setu::{
-    config::{Config, ServerConfig, ProviderConfig, RoutingConfig, AuthConfig},
+    config::{AuthConfig, Config, ProviderConfig, RoutingConfig, ServerConfig},
     server::routes::{anthropic_messages, openai_chat_completions, openai_models},
 };
 
 fn create_test_config() -> Arc<Config> {
     let mut providers = HashMap::new();
-    providers.insert("anthropic".to_string(), ProviderConfig {
-        r#type: "anthropic".to_string(),
-        endpoint: "https://api.anthropic.com".to_string(),
-        models: vec!["claude-3-sonnet".to_string()],
-        auth: AuthConfig::default(),
-    });
-    providers.insert("openrouter".to_string(), ProviderConfig {
-        r#type: "openrouter".to_string(),
-        endpoint: "https://openrouter.ai/api/v1".to_string(),
-        models: vec!["gpt-4".to_string()],
-        auth: AuthConfig::default(),
-    });
+    providers.insert(
+        "anthropic".to_string(),
+        ProviderConfig {
+            r#type: "anthropic".to_string(),
+            endpoint: "https://api.anthropic.com".to_string(),
+            models: vec!["claude-3-sonnet".to_string()],
+            auth: AuthConfig::default(),
+        },
+    );
+    providers.insert(
+        "openrouter".to_string(),
+        ProviderConfig {
+            r#type: "openrouter".to_string(),
+            endpoint: "https://openrouter.ai/api/v1".to_string(),
+            models: vec!["gpt-4".to_string()],
+            auth: AuthConfig::default(),
+        },
+    );
 
     Arc::new(Config {
         server: ServerConfig::default(),
@@ -49,7 +55,7 @@ async fn test_request_parsing_edge_cases() {
         .header("content-type", "application/json")
         .body(Body::empty())
         .unwrap();
-    
+
     let response = anthropic_messages(State(config.clone()), request).await;
     assert!(response.is_err());
     assert_eq!(response.unwrap_err(), StatusCode::BAD_REQUEST);
@@ -61,7 +67,7 @@ async fn test_request_parsing_edge_cases() {
         .header("content-type", "application/json")
         .body(Body::from("{ invalid json"))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config.clone()), request).await;
     assert!(response.is_err());
     assert_eq!(response.unwrap_err(), StatusCode::BAD_REQUEST);
@@ -73,7 +79,7 @@ async fn test_request_parsing_edge_cases() {
         .header("content-type", "application/json")
         .body(Body::from(r#"{"max_tokens": 100}"#))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config.clone()), request).await;
     assert!(response.is_err());
     assert_eq!(response.unwrap_err(), StatusCode::BAD_REQUEST);
@@ -95,7 +101,7 @@ async fn test_request_parsing_edge_cases() {
         .header("content-type", "application/json")
         .body(Body::from(large_request.to_string()))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config), request).await;
     assert!(response.is_err());
     assert_eq!(response.unwrap_err(), StatusCode::BAD_REQUEST);
@@ -120,7 +126,7 @@ async fn test_routing_edge_cases() {
         .header("authorization", "Bearer sk-test")
         .body(Body::from(request_body.to_string()))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config.clone()), request).await;
     // Should default to openrouter provider
     assert!(response.is_err());
@@ -140,7 +146,7 @@ async fn test_routing_edge_cases() {
         .header("authorization", "Bearer sk-test")
         .body(Body::from(request_body.to_string()))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config.clone()), request).await;
     // Should default to openrouter provider for empty model
     assert!(response.is_err());
@@ -159,7 +165,7 @@ async fn test_routing_edge_cases() {
         .header("authorization", "Bearer sk-test")
         .body(Body::from(request_body.to_string()))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config), request).await;
     // Should route to anthropic based on "claude-" prefix
     assert!(response.is_err());
@@ -183,7 +189,7 @@ async fn test_authentication_edge_cases() {
         .header("content-type", "application/json")
         .body(Body::from(request_body.to_string()))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config.clone()), request).await;
     assert!(response.is_err());
     assert_eq!(response.unwrap_err(), StatusCode::UNAUTHORIZED);
@@ -196,7 +202,7 @@ async fn test_authentication_edge_cases() {
         .header("authorization", "InvalidFormat")
         .body(Body::from(request_body.to_string()))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config.clone()), request).await;
     assert!(response.is_err());
     assert_eq!(response.unwrap_err(), StatusCode::UNAUTHORIZED);
@@ -209,7 +215,7 @@ async fn test_authentication_edge_cases() {
         .header("authorization", "Bearer ")
         .body(Body::from(request_body.to_string()))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config.clone()), request).await;
     assert!(response.is_err());
     // Empty token likely results in API call failure (BAD_GATEWAY) rather than UNAUTHORIZED
@@ -224,7 +230,7 @@ async fn test_authentication_edge_cases() {
         .header("authorization", "Bearer invalid-api-key")
         .body(Body::from(request_body.to_string()))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config), request).await;
     // Should attempt direct anthropic call and fail due to invalid credentials
     assert!(response.is_err());
@@ -252,7 +258,7 @@ async fn test_claude_code_detection() {
         .header("user-agent", "claude-cli/1.0.0")
         .body(Body::from(request_body.to_string()))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config.clone()), request).await;
     // Should trigger OAuth path and fail due to missing OAuth config
     assert!(response.is_err());
@@ -267,7 +273,7 @@ async fn test_claude_code_detection() {
         .header("x-app", "cli")
         .body(Body::from(request_body.to_string()))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config.clone()), request).await;
     // Should trigger OAuth path and fail due to missing OAuth config
     assert!(response.is_err());
@@ -282,7 +288,7 @@ async fn test_claude_code_detection() {
         .header("user-agent", "not-claude-cli/1.0.0")
         .body(Body::from(request_body.to_string()))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config), request).await;
     // Should use direct path and fail due to invalid API key
     assert!(response.is_err());
@@ -297,7 +303,7 @@ async fn test_openai_endpoints() {
         .uri("/v1/chat/completions")
         .body(Body::empty())
         .unwrap();
-    
+
     let response = openai_chat_completions(request).await;
     assert!(response.is_err());
     assert_eq!(response.unwrap_err(), StatusCode::NOT_IMPLEMENTED);
@@ -305,7 +311,7 @@ async fn test_openai_endpoints() {
     // Test models endpoint returns mock data
     let response = openai_models().await;
     let json_value = response.0; // Extract the Value from Json<Value>
-    
+
     assert!(json_value["data"].is_array());
     assert_eq!(json_value["object"], "list");
     assert_eq!(json_value["data"][0]["id"], "setu-noop");
@@ -332,7 +338,7 @@ async fn test_streaming_edge_cases() {
         .header("user-agent", "claude-cli/1.0.0")
         .body(Body::from(request_body.to_string()))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config.clone()), request).await;
     // Should fail due to missing OAuth but attempt streaming path
     assert!(response.is_err());
@@ -353,7 +359,7 @@ async fn test_streaming_edge_cases() {
         .header("authorization", "Bearer sk-test")
         .body(Body::from(request_body.to_string()))
         .unwrap();
-    
+
     let response = anthropic_messages(State(config), request).await;
     // May succeed or fail depending on OpenRouter credentials, but should handle streaming gracefully
     // Just verify it doesn't panic and returns a valid status
@@ -362,9 +368,9 @@ async fn test_streaming_edge_cases() {
         Err(status) => {
             // Should be one of the expected error types
             assert!(
-                status == StatusCode::BAD_GATEWAY || 
-                status == StatusCode::INTERNAL_SERVER_ERROR ||
-                status == StatusCode::UNAUTHORIZED
+                status == StatusCode::BAD_GATEWAY
+                    || status == StatusCode::INTERNAL_SERVER_ERROR
+                    || status == StatusCode::UNAUTHORIZED
             );
         }
     }
@@ -396,7 +402,7 @@ async fn test_header_handling() {
     let (mut parts, body) = request.into_parts();
     parts.headers = headers;
     let request = Request::from_parts(parts, body);
-    
+
     let response = anthropic_messages(State(config.clone()), request).await;
     // Should handle the header properly (fail due to invalid API key)
     assert!(response.is_err());
@@ -406,7 +412,7 @@ async fn test_header_handling() {
     headers.insert("content-type", "application/json".parse().unwrap());
     headers.insert("authorization", "Bearer sk-test".parse().unwrap());
     // Add header with invalid UTF-8 - this should be handled gracefully
-    
+
     let request = Request::builder()
         .method("POST")
         .uri("/v1/messages")
@@ -416,7 +422,7 @@ async fn test_header_handling() {
     let (mut parts, body) = request.into_parts();
     parts.headers = headers;
     let request = Request::from_parts(parts, body);
-    
+
     let response = anthropic_messages(State(config), request).await;
     // Should handle gracefully and fail due to invalid API key
     assert!(response.is_err());
