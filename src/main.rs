@@ -104,7 +104,7 @@ async fn start_server(host: Option<String>, port: Option<u16>) -> Result<()> {
     config.save()?;
 
     // Initialize authentication cache - fails startup if any OAuth tokens are expired
-    let auth_cache = match setu::auth::initialize_auth_cache() {
+    let auth_cache = match setu::auth::initialize_auth_cache().await {
         Ok(cache) => cache,
         Err(e) => {
             eprintln!("{}", e);

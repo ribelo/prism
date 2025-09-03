@@ -103,7 +103,7 @@ async fn handle_google_auth() -> Result<()> {
     let mut config = Config::load().unwrap_or_default();
 
     // Try to read existing Gemini CLI credentials
-    match GoogleOAuth::try_gemini_cli_credentials() {
+    match GoogleOAuth::try_gemini_cli_credentials().await {
         Ok(auth_config) => {
             // Save to config
             let mut provider_config = config.providers.get("gemini").cloned().unwrap_or_else(|| {

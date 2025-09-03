@@ -207,6 +207,8 @@ impl AnthropicOAuth {
             .as_ref()
             .ok_or_else(|| SetuError::Other("No refresh token available".to_string()))?;
 
+        tracing::info!("Attempting to refresh Anthropic OAuth token");
+
         let request_body = serde_json::json!({
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
@@ -217,23 +219,22 @@ impl AnthropicOAuth {
         let response = client
             .post("https://console.anthropic.com/v1/oauth/token")
             .header("Content-Type", "application/json")
+            .header("anthropic-beta", 
+                "oauth-2025-04-20,claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14")
             .json(&request_body)
             .send()
             .await
-            .map_err(|e| SetuError::Other(format!("Token refresh failed: {}", e)))?;
+            .map_err(|e| SetuError::Other(format!("Token refresh request failed: {}", e)))?;
 
         if !response.status().is_success() {
-            // Store the status before moving the response
             let status = response.status();
-
-            // Try to get the error details from the response body
             let error_body = response
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unable to read error body".to_string());
 
             return Err(SetuError::Other(format!(
-                "Token refresh failed with status: {} - Body: {}",
+                "Token refresh failed with status {}: {}",
                 status, error_body
             )));
         }
@@ -248,10 +249,54 @@ impl AnthropicOAuth {
             .map_err(|e| SetuError::Other(format!("Time error: {}", e)))?
             .as_millis() as u64;
 
+        // Update auth config with new tokens
         auth_config.oauth_access_token = Some(token_response.access_token);
         auth_config.oauth_refresh_token = Some(token_response.refresh_token);
         auth_config.oauth_expires = Some(now + (token_response.expires_in * 1000));
 
+        tracing::info!("Successfully refreshed Anthropic OAuth token");
+        Ok(())
+    }
+
+    /// Check if token needs refresh and refresh if necessary
+    /// Returns the current valid access token
+    pub async fn get_valid_access_token(
+        auth_config: &mut AuthConfig,
+        persist_tokens: bool,
+    ) -> Result<String> {
+        // Check if token is expired or missing
+        if auth_config.oauth_access_token.is_none() || auth_config.is_token_expired() {
+            if auth_config.oauth_refresh_token.is_some() {
+                tracing::debug!("Token expired, refreshing automatically");
+                Self::refresh_token(auth_config).await?;
+                
+                if persist_tokens {
+                    // Simple persistence without full config reload
+                    if let Err(e) = Self::persist_tokens_to_config(auth_config).await {
+                        tracing::warn!("Failed to persist refreshed tokens: {}", e);
+                        // Continue anyway - in-memory tokens are still valid
+                    }
+                }
+            } else {
+                return Err(SetuError::Other("No refresh token available and access token is expired".to_string()));
+            }
+        }
+        
+        auth_config.oauth_access_token
+            .clone()
+            .ok_or_else(|| SetuError::Other("No access token available after refresh".to_string()))
+    }
+
+    /// Simple token persistence helper
+    async fn persist_tokens_to_config(auth_config: &AuthConfig) -> Result<()> {
+        use crate::Config;
+        
+        let mut config = Config::load()?;
+        if let Some(provider) = config.providers.get_mut("anthropic") {
+            provider.auth = auth_config.clone();
+            config.save()?;
+            tracing::debug!("Persisted refreshed tokens to config");
+        }
         Ok(())
     }
 

@@ -104,12 +104,12 @@ pub fn analyze_token_source(source_name: &str, auth_config: &AuthConfig) -> Toke
 }
 
 /// Check if OAuth tokens exist anywhere (even if expired) - indicates user has subscription
-pub fn oauth_tokens_exist_anywhere() -> bool {
+pub async fn oauth_tokens_exist_anywhere() -> bool {
     // Check Claude CLI tokens
     let claude_exists = crate::auth::anthropic::AnthropicOAuth::try_claude_code_credentials().is_ok();
     
     // Check Gemini CLI tokens  
-    let gemini_exists = crate::auth::google::GoogleOAuth::try_gemini_cli_credentials().is_ok();
+    let gemini_exists = crate::auth::google::GoogleOAuth::try_gemini_cli_credentials().await.is_ok();
     
     claude_exists || gemini_exists
 }

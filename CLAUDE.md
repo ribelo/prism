@@ -103,40 +103,9 @@ Provider API keys can be set via environment variables:
 
 Uses `thiserror` for error types and `backon` for retry logic. All errors flow through `SetuError` type defined in `src/error.rs`.
 
-## Testing with Claude CLI
-
-Setu can be tested using the Claude CLI tool by setting the base URL to point to the local setu server:
-
-```bash
-# Start setu server
-cargo run -- start
-
-# Test with Claude CLI (in another terminal)
-ANTHROPIC_BASE_URL=http://localhost:3742 claude -p "hello"
-```
-
-This allows testing the full request flow through setu's routing system while using Claude Code's OAuth credentials automatically.
-
-### Claude CLI Model Parameter Limitation
-
-**Important**: The Claude CLI `--model` parameter does not work with custom `ANTHROPIC_BASE_URL`. When using a custom base URL, Claude CLI ignores the `--model` parameter and sends its own default model names (e.g., `claude-3-5-haiku-20241022`, `claude-sonnet-4-20250514`).
-
-```bash
-# This will NOT work as expected - model parameter is ignored
-ANTHROPIC_BASE_URL=http://localhost:3742 claude --model openrouter/z-ai/glm-4.5 -p "test"
-
-# Claude CLI will still send claude-3-5-haiku-20241022 instead of openrouter/z-ai/glm-4.5
-```
-
-This is a limitation of the Claude CLI itself, not setu. The CLI hardcodes its model selection logic and bypasses the `--model` parameter when a custom base URL is provided.
-
-To test different model routing through setu, you would need to:
-1. Use a different client that respects custom models with custom base URLs
-2. Test setu's routing logic directly via HTTP requests
-3. Configure setu's routing rules to map Claude's default models to desired providers
-
 ## Testing Approach
 
+- Direct HTTP requests using curl for API testing
 - Unit tests in `tests/` directory
 - Test individual configs with `cargo test --test <test_name>`
 - Integration tests for routing and API transformation logic

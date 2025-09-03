@@ -58,7 +58,7 @@ impl AuthProvider for AuthConfig {
 }
 
 /// Initialize authentication cache by checking OAuth tokens once at startup
-pub fn initialize_auth_cache() -> Result<AuthCache> {
+pub async fn initialize_auth_cache() -> Result<AuthCache> {
     use tracing::info;
     
     info!("Checking OAuth token availability...");
@@ -69,7 +69,7 @@ pub fn initialize_auth_cache() -> Result<AuthCache> {
     let anthropic_method = determine_anthropic_auth_method()?;
     
     // Check Gemini tokens - fail startup if expired
-    let gemini_method = determine_gemini_auth_method()?;
+    let gemini_method = determine_gemini_auth_method().await?;
     
     info!("Authentication methods cached at startup");
     
@@ -134,12 +134,12 @@ fn determine_anthropic_auth_method() -> Result<AuthMethod> {
 }
 
 /// Determine the best Gemini authentication method  
-fn determine_gemini_auth_method() -> Result<AuthMethod> {
+async fn determine_gemini_auth_method() -> Result<AuthMethod> {
     use crate::auth::google::GoogleOAuth;
     use tracing::info;
     
     // Try to load Gemini CLI tokens
-    let gemini_cli_result = GoogleOAuth::try_gemini_cli_credentials();
+    let gemini_cli_result = GoogleOAuth::try_gemini_cli_credentials().await;
     
     if let Ok(gemini_config) = gemini_cli_result {
         // Tokens are valid and not expired

@@ -10,7 +10,6 @@ use tokio::sync::Mutex;
 use tracing::info;
 
 use crate::{
-    auth::common::{analyze_token_source, choose_best_token_source},
     config::Config,
     error::SetuError,
     router::{NameBasedRouter, name_based::LegacyRoutingDecision},
@@ -47,9 +46,17 @@ mod error_handling {
 }
 
 // AI provider imports
-use anthropic_ox::{Anthropic, ChatRequest};
-use gemini_ox::Gemini;
-use openrouter_ox::OpenRouter;
+use anthropic_ox::{Anthropic, ChatRequest, request::ThinkingConfig as AnthropicThinkingConfig};
+use gemini_ox::{Gemini, generate_content::ThinkingConfig as GeminiThinkingConfig};
+use openrouter_ox::{OpenRouter, provider_preference::{ProviderPreferences, Sort}};
+use std::collections::HashMap;
+
+// OpenAI reasoning config - define locally since we don't have openai-ox in setu dependencies
+#[derive(Debug, Clone)]
+pub struct ReasoningConfig {
+    pub effort: Option<String>,
+    pub summary: Option<String>,
+}
 
 
 /// Transform anthropic-beta header to include OAuth beta flag
@@ -91,6 +98,96 @@ fn compact_request_for_logging(value: &Value) -> Value {
     }
 }
 
+/// Parameter mapping functions for thinking/reasoning features
+mod parameter_mapping {
+    use super::*;
+
+    /// Apply thinking parameters to Anthropic ChatRequest
+    pub fn apply_anthropic_thinking_params(
+        mut request: anthropic_ox::ChatRequest,
+        query_params: &HashMap<String, String>,
+    ) -> anthropic_ox::ChatRequest {
+        if let Some(think_value) = query_params.get("think") {
+            if let Ok(budget) = think_value.parse::<u32>() {
+                request.thinking = Some(AnthropicThinkingConfig::new(budget));
+            }
+        }
+        request
+    }
+
+    /// Apply reasoning parameters to OpenAI ReasoningConfig for o1 models
+    pub fn create_openai_reasoning_config(query_params: &HashMap<String, String>) -> Option<ReasoningConfig> {
+        if let Some(effort_value) = query_params.get("effort") {
+            match effort_value.as_str() {
+                "minimal" | "low" | "medium" | "high" => {
+                    Some(ReasoningConfig {
+                        effort: Some(effort_value.clone()),
+                        summary: None,
+                    })
+                }
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Apply thinking parameters to Gemini ThinkingConfig
+    pub fn create_gemini_thinking_config(query_params: &HashMap<String, String>) -> Option<GeminiThinkingConfig> {
+        let mut has_thinking_params = false;
+        let mut thinking_budget = 0;
+        let mut include_thoughts = false;
+
+        if let Some(think_value) = query_params.get("think") {
+            if let Ok(budget) = think_value.parse::<i32>() {
+                thinking_budget = budget;
+                has_thinking_params = true;
+            }
+        }
+
+        if let Some(thoughts_value) = query_params.get("thoughts") {
+            include_thoughts = thoughts_value.parse::<bool>().unwrap_or(false);
+            has_thinking_params = true;
+        }
+
+        if has_thinking_params {
+            Some(GeminiThinkingConfig {
+                include_thoughts,
+                thinking_budget,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Apply reasoning and provider parameters to OpenRouter ProviderPreferences
+    pub fn apply_openrouter_thinking_params(
+        mut provider_prefs: ProviderPreferences,
+        query_params: &HashMap<String, String>,
+    ) -> (ProviderPreferences, Option<bool>) {
+        let mut include_reasoning = None;
+
+        // Handle reasoning flag
+        if let Some(reasoning_value) = query_params.get("reasoning") {
+            include_reasoning = Some(reasoning_value.parse::<bool>().unwrap_or(false));
+        }
+
+        // Handle thinking budget through max_price or other mechanisms if needed
+        // OpenRouter doesn't have direct thinking budget, but can be extended later
+
+        // Handle effort mapping to Sort preference
+        if let Some(effort_value) = query_params.get("effort") {
+            match effort_value.as_str() {
+                "high" => provider_prefs.sort = Some(Sort::Throughput), // High effort = high throughput
+                "low" | "minimal" => provider_prefs.sort = Some(Sort::Price), // Low effort = low price
+                _ => {} // medium or other values don't change sort
+            }
+        }
+
+        (provider_prefs, include_reasoning)
+    }
+}
+
 /// OpenAI chat completions endpoint handler - not implemented for Claude Code
 pub async fn openai_chat_completions(
     State(_app_state): State<crate::server::AppState>,
@@ -117,52 +214,97 @@ pub async fn openai_models(State(_app_state): State<crate::server::AppState>) ->
     Json(mock_response)
 }
 
-/// Handle OAuth authentication using cached token from startup
+/// Handle OAuth authentication with automatic token refresh on failure
 async fn handle_oauth_request(
     auth_method: &crate::auth::AuthMethod,
+    config: Arc<Mutex<crate::Config>>,
     chat_request: ChatRequest,
+    routing_decision: LegacyRoutingDecision,
     parts: axum::http::request::Parts,
 ) -> Result<axum::response::Response, StatusCode> {
 
-    // Get OAuth token from cached auth method
-    let oauth_token = match auth_method {
+    use crate::auth::anthropic::AnthropicOAuth;
+
+    // Try with cached token first
+    let mut oauth_token = match auth_method {
         crate::auth::AuthMethod::OAuth { token, .. } => token.clone(),
         crate::auth::AuthMethod::ApiKey => {
             return Err(error_handling::unauthorized("OAuth method expected but API key method was cached"));
         }
     };
 
-    // Create Anthropic client with OAuth and custom headers
-    let mut client = Anthropic::builder().oauth_token(oauth_token).build();
+    // Attempt request with current token, refresh and retry if auth fails
+    for attempt in 0..2 {
+        let mut client = Anthropic::builder().oauth_token(&oauth_token).build();
+        
+        // Add required OAuth headers
+        client = client.header("anthropic-client-id", "9d1c250a-e61b-44d9-88ed-5944d1962f5e");
+        client = client.header("anthropic-beta", 
+            "oauth-2025-04-20,claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14");
 
-    // Add required headers
-    client = client.header(
-        "anthropic-client-id",
-        "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
-    );
-
-    // Transform and add other headers
-    for (name, value) in parts.headers.iter() {
-        if let Ok(value_str) = value.to_str() {
-            match name.as_str() {
-                "anthropic-beta" => {
-                    let transformed_beta = transform_anthropic_beta_header(Some(value_str));
-                    client = client.header("anthropic-beta", transformed_beta);
+        // Transform and add other headers
+        for (name, value) in parts.headers.iter() {
+            if let Ok(value_str) = value.to_str() {
+                match name.as_str() {
+                    "anthropic-beta" => {
+                        let transformed_beta = transform_anthropic_beta_header(Some(value_str));
+                        client = client.header("anthropic-beta", transformed_beta);
+                    }
+                    "x-stainless-helper-method" => {
+                        client = client.header("x-stainless-helper-method", value_str);
+                    }
+                    _ => {}
                 }
-                "x-stainless-helper-method" => {
-                    client = client.header("x-stainless-helper-method", value_str);
-                }
-                _ => {}
             }
+        }
+
+        // Apply thinking parameters if present in query string
+        let processed_request = if let Some(query_params) = &routing_decision.query_params {
+            parameter_mapping::apply_anthropic_thinking_params(chat_request.clone(), query_params)
+        } else {
+            chat_request.clone()
+        };
+
+        // Attempt the request
+        match handle_anthropic_streaming(&client, &processed_request).await {
+            Ok(response) => return Ok(response),
+            Err(status) if status == StatusCode::UNAUTHORIZED && attempt == 0 => {
+                // Auth failed on first attempt - try to refresh token
+                tracing::info!("OAuth request failed with 401, attempting token refresh");
+                
+                let token_refresh_result = {
+                    let mut config_guard = config.lock().await;
+                    if let Some(provider) = config_guard.providers.get_mut("anthropic") {
+                        AnthropicOAuth::get_valid_access_token(&mut provider.auth, true).await
+                    } else {
+                        Err(SetuError::Other("No anthropic provider in config".to_string()))
+                    }
+                };
+
+                match token_refresh_result {
+                    Ok(new_token) => {
+                        oauth_token = new_token;
+                        tracing::info!("Token refreshed, retrying request");
+                        continue; // Retry with new token
+                    }
+                    Err(e) => {
+                        tracing::error!("Token refresh failed: {}", e);
+                        return Err(status);
+                    }
+                }
+            }
+            Err(status) => return Err(status),
         }
     }
 
-    handle_anthropic_streaming(&client, &chat_request).await
+    // Should never reach here
+    Err(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 /// Handle direct Anthropic API requests (non-Claude Code)
 async fn handle_direct_anthropic_request(
     chat_request: ChatRequest,
+    routing_decision: LegacyRoutingDecision,
     parts: axum::http::request::Parts,
 ) -> Result<axum::response::Response, StatusCode> {
 
@@ -217,7 +359,14 @@ async fn handle_direct_anthropic_request(
         }
     }
 
-    handle_anthropic_streaming(&client, &chat_request).await
+    // Apply thinking parameters if present in query string
+    let processed_request = if let Some(query_params) = &routing_decision.query_params {
+        parameter_mapping::apply_anthropic_thinking_params(chat_request, query_params)
+    } else {
+        chat_request
+    };
+
+    handle_anthropic_streaming(&client, &processed_request).await
 }
 
 /// Handle streaming/non-streaming for Anthropic requests
@@ -366,11 +515,11 @@ pub async fn anthropic_messages(
             } else {
                 info!("🔐 Direct → OAuth ({}, subscription billing) → {}", source, chat_request.model); 
             }
-            handle_oauth_request(&app_state.auth_cache.anthropic_method, chat_request, parts).await
+            handle_oauth_request(&app_state.auth_cache.anthropic_method, app_state.config.clone(), chat_request, routing_decision, parts).await
         }
         crate::auth::AuthMethod::ApiKey => {
             info!("💳 Anthropic → API Key (pay-per-use billing) → {}", chat_request.model);
-            handle_direct_anthropic_request(chat_request, parts).await
+            handle_direct_anthropic_request(chat_request, routing_decision, parts).await
         }
     }
 }
@@ -400,6 +549,89 @@ fn is_claude_code_request(headers: &axum::http::HeaderMap) -> bool {
 
 
 
+/// Map provider name strings to OpenRouter Provider enum values
+fn map_provider_name(provider_name: &str) -> Option<openrouter_ox::provider_preference::Provider> {
+    use openrouter_ox::provider_preference::Provider;
+    
+    match provider_name.to_lowercase().as_str() {
+        "anthropic" => Some(Provider::Anthropic),
+        "openai" => Some(Provider::OpenAI),
+        "google" => Some(Provider::Google),
+        "groq" => Some(Provider::Groq),
+        "fireworks" => Some(Provider::Fireworks),
+        "together" => Some(Provider::Together),
+        "together2" => Some(Provider::Together2),
+        "deepinfra" => Some(Provider::DeepInfra),
+        "lepton" => Some(Provider::Lepton),
+        "novita" => Some(Provider::Novita),
+        "avian" => Some(Provider::Avian),
+        "lambda" => Some(Provider::Lambda),
+        "azure" => Some(Provider::Azure),
+        "modal" => Some(Provider::Modal),
+        "anyscale" => Some(Provider::AnyScale),
+        "replicate" => Some(Provider::Replicate),
+        "perplexity" => Some(Provider::Perplexity),
+        "recursal" => Some(Provider::Recursal),
+        "octoai" => Some(Provider::OctoAI),
+        "deepseek" => Some(Provider::DeepSeek),
+        "infermatic" => Some(Provider::Infermatic),
+        "ai21" => Some(Provider::AI21),
+        "featherless" => Some(Provider::Featherless),
+        "inflection" => Some(Provider::Inflection),
+        "xai" => Some(Provider::xAI),
+        "cloudflare" => Some(Provider::Cloudflare),
+        "minimax" => Some(Provider::Minimax),
+        "nineteen" => Some(Provider::Nineteen),
+        "z-ai" | "zai" => Some(Provider::ZAI),
+        "01-ai" | "01ai" => Some(Provider::ZeroOneAI),
+        "huggingface" => Some(Provider::HuggingFace),
+        "mancer" => Some(Provider::Mancer),
+        "mancer2" => Some(Provider::Mancer2),
+        "hyperbolic" => Some(Provider::Hyperbolic),
+        "hyperbolic2" => Some(Provider::Hyperbolic2),
+        "lynn" => Some(Provider::Lynn),
+        "lynn2" => Some(Provider::Lynn2),
+        "reflection" => Some(Provider::Reflection),
+        "aionlabs" => Some(Provider::AionLabs),
+        "alibaba" => Some(Provider::Alibaba),
+        "atlascloud" => Some(Provider::AtlasCloud),
+        "atoma" => Some(Provider::Atoma),
+        "baseten" => Some(Provider::BaseTen),
+        "cerebras" => Some(Provider::Cerebras),
+        "chutes" => Some(Provider::Chutes),
+        "crofai" => Some(Provider::CrofAI),
+        "crusoe" => Some(Provider::Crusoe),
+        "enfer" => Some(Provider::Enfer),
+        "friendli" => Some(Provider::Friendli),
+        "gmicloud" => Some(Provider::GMICloud),
+        "inception" => Some(Provider::Inception),
+        "inferencenet" => Some(Provider::InferenceNet),
+        "inocloud" => Some(Provider::InoCloud),
+        "kluster" => Some(Provider::Kluster),
+        "liquid" => Some(Provider::Liquid),
+        "meta" => Some(Provider::Meta),
+        "moonshot" | "moonshotai" => Some(Provider::MoonshotAI),
+        "morph" => Some(Provider::Morph),
+        "ncompass" => Some(Provider::NCompass),
+        "nebius" => Some(Provider::Nebius),
+        "nextbit" => Some(Provider::NextBit),
+        "openinference" => Some(Provider::OpenInference),
+        "parasail" => Some(Provider::Parasail),
+        "phala" => Some(Provider::Phala),
+        "siliconflow" => Some(Provider::SiliconFlow),
+        "stealth" => Some(Provider::Stealth),
+        "switchpoint" => Some(Provider::Switchpoint),
+        "targon" => Some(Provider::Targon),
+        "ubicloud" => Some(Provider::Ubicloud),
+        "venice" => Some(Provider::Venice),
+        "wandb" => Some(Provider::WandB),
+        "cent-ml" | "centml" => Some(Provider::CentML),
+        "sambanova" => Some(Provider::SambaNova),
+        "sambanova2" => Some(Provider::SambaNova2),
+        _ => None,
+    }
+}
+
 /// Handle requests routed to OpenRouter
 async fn handle_openrouter_request(
     config: Arc<Mutex<Config>>,
@@ -422,12 +654,77 @@ async fn handle_openrouter_request(
     modified_request.model = routing_decision.model.clone();
 
     // Convert Anthropic request to OpenRouter format using explicit conversion
-    let openrouter_request = match conversion_ox::anthropic_openrouter::anthropic_to_openrouter_request(modified_request) {
+    let mut openrouter_request = match conversion_ox::anthropic_openrouter::anthropic_to_openrouter_request(modified_request) {
         Ok(req) => req,
         Err(e) => {
             return Err(error_handling::bad_request("Failed to convert request to OpenRouter format", &e));
         }
     };
+
+    // Apply provider preferences and query parameters
+    let mut provider_prefs = ProviderPreferences {
+        allow_fallbacks: None,
+        require_parameters: None,
+        data_collection: None,
+        order: None,
+        only: None,
+        ignore: None,
+        quantizations: None,
+        sort: None,
+        max_price: None,
+    };
+    
+    let mut include_reasoning: Option<bool> = None;
+    let mut has_preferences = false;
+
+    // Apply provider preference (e.g., :nitro, :floor, or specific provider)
+    if let Some(ref preference) = routing_decision.provider_preference {
+        match preference.as_str() {
+            "nitro" => {
+                provider_prefs.sort = Some(Sort::Throughput);
+                info!("OpenRouter: Using :nitro preference (sort by throughput)");
+                has_preferences = true;
+            }
+            "floor" => {
+                provider_prefs.sort = Some(Sort::Price);
+                info!("OpenRouter: Using :floor preference (sort by price)");
+                has_preferences = true;
+            }
+            other => {
+                // Map to specific provider
+                if let Some(provider) = map_provider_name(other) {
+                    provider_prefs.only = Some(vec![provider]);
+                    info!("OpenRouter: Restricting to provider: {}", other);
+                    has_preferences = true;
+                } else {
+                    tracing::warn!("OpenRouter: Unknown provider preference '{}', ignoring", other);
+                }
+            }
+        }
+    }
+
+    // Apply query parameters (e.g., ?reasoning=true&effort=high)
+    if let Some(query_params) = &routing_decision.query_params {
+        let (modified_prefs, reasoning_flag) = parameter_mapping::apply_openrouter_thinking_params(provider_prefs, query_params);
+        provider_prefs = modified_prefs;
+        include_reasoning = reasoning_flag;
+        
+        if reasoning_flag.is_some() || provider_prefs.sort.is_some() {
+            has_preferences = true;
+            info!("OpenRouter: Applied query parameters: {:?}", query_params);
+        }
+    }
+
+    // Set provider preferences if we configured anything
+    if has_preferences {
+        openrouter_request.provider = Some(provider_prefs);
+    }
+    
+    // Set include_reasoning if specified
+    if let Some(reasoning) = include_reasoning {
+        openrouter_request.include_reasoning = Some(reasoning);
+        info!("OpenRouter: Include reasoning = {}", reasoning);
+    }
 
     let is_streaming = openrouter_request.stream.unwrap_or(false);
 
@@ -527,7 +824,29 @@ async fn handle_gemini_request(
     let is_streaming = modified_request.stream.unwrap_or(false);
     
     // Convert Anthropic request to Gemini format
-    let gemini_request = conversion_ox::anthropic_gemini::anthropic_to_gemini_request(modified_request);
+    let mut gemini_request = conversion_ox::anthropic_gemini::anthropic_to_gemini_request(modified_request);
+    
+    // Apply thinking parameters from query string or use defaults for Gemini
+    let mut generation_config = gemini_request.generation_config.unwrap_or_default();
+    if let Some(query_params) = &routing_decision.query_params {
+        // Use query parameters to configure thinking
+        if let Some(thinking_config) = parameter_mapping::create_gemini_thinking_config(query_params) {
+            generation_config.thinking_config = Some(thinking_config);
+        } else {
+            // No thinking params specified - use defaults to enable thinking content
+            generation_config.thinking_config = Some(gemini_ox::generate_content::ThinkingConfig {
+                include_thoughts: true,
+                thinking_budget: -1,
+            });
+        }
+    } else {
+        // No query params - use defaults to enable thinking content  
+        generation_config.thinking_config = Some(gemini_ox::generate_content::ThinkingConfig {
+            include_thoughts: true,
+            thinking_budget: -1,
+        });
+    }
+    gemini_request.generation_config = Some(generation_config);
 
     if is_streaming {
         // Handle streaming request using Gemini request
@@ -622,7 +941,7 @@ async fn create_gemini_client(config: Arc<Mutex<Config>>) -> Result<Gemini, Setu
     // Try OAuth first (Gemini CLI, then setu config)
     
     // 1. Try Gemini CLI OAuth
-    if let Ok(gemini_config) = GoogleOAuth::try_gemini_cli_credentials() {
+    if let Ok(gemini_config) = GoogleOAuth::try_gemini_cli_credentials().await {
         if let Some(oauth_token) = gemini_config.oauth_access_token {
             info!("🔐 Gemini → OAuth via Gemini CLI (subscription billing)");
             let client = Gemini::builder()

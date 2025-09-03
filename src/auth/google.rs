@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -22,22 +22,118 @@ use crate::error::{Result, SetuError};
 /// - It's part of Google's Cloud Code Assist infrastructure  
 /// - Changing it would break compatibility with gemini-cli OAuth tokens
 /// - Google manages this project ID, not individual users
-const GEMINI_PROJECT_ID: &str = "pioneering-trilogy-xq6tl";
+pub const GEMINI_PROJECT_ID: &str = "pioneering-trilogy-xq6tl";
+
+/// OAuth constants from Gemini CLI source code
+const OAUTH_CLIENT_ID: &str = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com";
+const OAUTH_CLIENT_SECRET: &str = "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";
+const OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+
+/// Get the token URL - can be overridden for testing
+fn get_token_url() -> String {
+    std::env::var("GOOGLE_TOKEN_URL").unwrap_or_else(|_| OAUTH_TOKEN_URL.to_string())
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GeminiOAuthCredentials {
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub expiry_date: u64,
+    pub token_type: String,
+    pub scope: String,
+}
 
 #[derive(Debug, Deserialize)]
-struct GeminiOAuthCredentials {
+struct TokenRefreshResponse {
     access_token: String,
-    refresh_token: Option<String>,
-    expiry_date: u64,
+    expires_in: u64,
     token_type: String,
-    scope: String,
+    scope: Option<String>,
 }
 
 pub struct GoogleOAuth;
 
 impl GoogleOAuth {
+    /// Refresh OAuth tokens using refresh token
+    async fn refresh_token(refresh_token: &str) -> Result<TokenRefreshResponse> {
+        let client = reqwest::Client::new();
+        
+        let params = [
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", OAUTH_CLIENT_ID),
+            ("client_secret", OAUTH_CLIENT_SECRET),
+        ];
+
+        tracing::info!("Attempting to refresh Gemini OAuth token");
+        
+        let response = client
+            .post(get_token_url())
+            .form(&params)
+            .send()
+            .await
+            .map_err(|e| SetuError::Other(format!("Token refresh request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            
+            return Err(SetuError::Other(format!(
+                "Token refresh failed with status {}: {}",
+                status, error_text
+            )));
+        }
+
+        let refresh_response: TokenRefreshResponse = response
+            .json()
+            .await
+            .map_err(|e| SetuError::Other(format!("Failed to parse token refresh response: {}", e)))?;
+
+        tracing::info!("Successfully refreshed Gemini OAuth token");
+        Ok(refresh_response)
+    }
+
+    /// Update credentials file with new tokens
+    async fn update_gemini_credentials(mut credentials: GeminiOAuthCredentials, refresh_response: TokenRefreshResponse) -> Result<GeminiOAuthCredentials> {
+        // Update with new token info
+        credentials.access_token = refresh_response.access_token;
+        credentials.token_type = refresh_response.token_type;
+        
+        // Calculate new expiry time
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| SetuError::Other(format!("Time error: {}", e)))?
+            .as_millis() as u64;
+        
+        credentials.expiry_date = now + (refresh_response.expires_in * 1000);
+        
+        // Update scope if provided
+        if let Some(scope) = refresh_response.scope {
+            credentials.scope = scope;
+        }
+
+        // Write updated credentials back to file
+        let credentials_path = Self::get_gemini_credentials_path()?;
+        let contents = serde_json::to_string_pretty(&credentials)
+            .map_err(|e| SetuError::Other(format!("Failed to serialize credentials: {}", e)))?;
+        
+        fs::write(&credentials_path, contents)
+            .map_err(|e| SetuError::Other(format!(
+                "Failed to write updated credentials to {}: {}",
+                credentials_path.display(),
+                e
+            )))?;
+
+        tracing::info!("Updated Gemini CLI OAuth credentials file");
+        Ok(credentials)
+    }
+
     /// Attempt to read Gemini CLI OAuth credentials from ~/.gemini/oauth_creds.json
-    pub fn try_gemini_cli_credentials() -> Result<AuthConfig> {
+    /// If expired and refresh token is available, attempt to refresh
+    pub async fn try_gemini_cli_credentials() -> Result<AuthConfig> {
         let credentials_path = Self::get_gemini_credentials_path()?;
 
         let contents = fs::read_to_string(&credentials_path).map_err(|e| {
@@ -48,20 +144,39 @@ impl GoogleOAuth {
             ))
         })?;
 
-        let credentials: GeminiOAuthCredentials = serde_json::from_str(&contents).map_err(|e| {
+        let mut credentials: GeminiOAuthCredentials = serde_json::from_str(&contents).map_err(|e| {
             SetuError::Other(format!("Failed to parse Gemini CLI credentials: {}", e))
         })?;
 
-        // Validate token hasn't expired
+        // Check if token has expired
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| SetuError::Other(format!("Time error: {}", e)))?
             .as_millis() as u64;
 
         if credentials.expiry_date <= now {
-            return Err(SetuError::Other(
-                "Gemini CLI OAuth token has expired".to_string(),
-            ));
+            // Token is expired - try to refresh if we have a refresh token
+            if let Some(ref refresh_token) = credentials.refresh_token {
+                tracing::info!("Gemini OAuth token expired, attempting refresh");
+                
+                match Self::refresh_token(refresh_token).await {
+                    Ok(refresh_response) => {
+                        // Update credentials with new token
+                        credentials = Self::update_gemini_credentials(credentials, refresh_response).await?;
+                        tracing::info!("Successfully refreshed expired Gemini OAuth token");
+                    }
+                    Err(e) => {
+                        return Err(SetuError::Other(format!(
+                            "Gemini CLI OAuth token has expired and refresh failed: {}",
+                            e
+                        )));
+                    }
+                }
+            } else {
+                return Err(SetuError::Other(
+                    "Gemini CLI OAuth token has expired and no refresh token is available".to_string(),
+                ));
+            }
         }
 
         // Check for required scopes
@@ -105,7 +220,7 @@ impl GoogleOAuth {
     /// Compares setu and Gemini CLI tokens, always choosing the newer one with full rationale
     pub async fn validate_auth_config(auth_config: &mut AuthConfig) -> Result<()> {
         let setu_token_info = analyze_token_source("setu config", auth_config);
-        let gemini_token_info = Self::try_gemini_cli_credentials()
+        let gemini_token_info = Self::try_gemini_cli_credentials().await
             .map(|config| analyze_token_source("Gemini CLI", &config))
             .unwrap_or_else(|e| {
                 tracing::debug!("Gemini CLI credentials unavailable: {}", e);
@@ -122,7 +237,7 @@ impl GoogleOAuth {
 
         match chosen_source.source.as_str() {
             "Gemini CLI" => {
-                if let Ok(gemini_config) = Self::try_gemini_cli_credentials() {
+                if let Ok(gemini_config) = Self::try_gemini_cli_credentials().await {
                     *auth_config = gemini_config;
                     return Ok(());
                 }
@@ -181,10 +296,10 @@ impl GoogleOAuth {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_try_gemini_cli_credentials() {
+    #[tokio::test]
+    async fn test_try_gemini_cli_credentials() {
         // This test will only work if ~/.gemini/oauth_creds.json exists and is valid
-        match GoogleOAuth::try_gemini_cli_credentials() {
+        match GoogleOAuth::try_gemini_cli_credentials().await {
             Ok(config) => {
                 assert!(config.oauth_access_token.is_some());
                 assert_eq!(config.project_id, Some(GEMINI_PROJECT_ID.to_string()));
@@ -245,3 +360,4 @@ mod tests {
         assert!(expected_project_id.contains("pioneering-trilogy"));
     }
 }
+
