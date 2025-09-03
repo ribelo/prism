@@ -36,6 +36,7 @@ struct ClaudeCodeOAuth {
     expires_at: u64,
     scopes: Vec<String>,
     #[serde(rename = "subscriptionType")]
+    #[allow(dead_code)]
     subscription_type: String,
 }
 

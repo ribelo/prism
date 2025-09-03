@@ -3,6 +3,7 @@ pub mod commands;
 pub mod config;
 pub mod error;
 pub mod process;
+pub mod retry;
 pub mod router;
 pub mod server;
 

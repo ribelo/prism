@@ -5,7 +5,7 @@ pub type Result<T> = std::result::Result<T, SetuError>;
 #[derive(Error, Debug)]
 pub enum SetuError {
     #[error("Configuration error: {0}")]
-    Config(#[from] figment::Error),
+    Config(#[from] Box<figment::Error>),
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),

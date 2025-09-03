@@ -17,6 +17,9 @@ use tracing::info;
 use crate::{auth::{anthropic::AnthropicOAuth, AuthCache}, config::Config, error::Result};
 
 pub mod routes;
+pub mod parameter_mapping;
+pub mod providers;
+pub mod error_handling;
 
 // Global timestamp for background task monitoring
 static LAST_TOKEN_CHECK: AtomicU64 = AtomicU64::new(0);
@@ -53,6 +56,8 @@ impl SetuServer {
             .route("/v1/models", get(routes::openai_models))
             // Anthropic-compatible routes
             .route("/v1/messages", post(routes::anthropic_messages))
+            // Gemini-compatible routes  
+            .route("/v1beta/models/{*model_path}", post(routes::gemini_generate_content))
             // Health check
             .route("/health", get(health_check))
             // Add shared application state
@@ -68,7 +73,7 @@ impl SetuServer {
 
         // Spawn background token maintenance task with panic recovery
         tokio::spawn({
-            let config = app_state.config;
+            let config = app_state.config.clone();
             async move {
                 loop {
                     let result =
@@ -96,7 +101,17 @@ impl SetuServer {
             }
         });
 
-        axum::serve(listener, app).await?;
+        // Graceful shutdown handling
+        let graceful = axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown_signal());
+
+        graceful.await?;
+
+        // Save any pending OAuth token refreshes
+        let config_guard = app_state.config.lock().await;
+        if let Err(e) = config_guard.save() {
+            tracing::warn!("Failed to save config during shutdown: {}", e);
+        }
 
         Ok(())
     }
@@ -121,6 +136,34 @@ async fn health_check() -> Json<Value> {
             "seconds_since_last_check": if last_check > 0 { now - last_check } else { 0 }
         }
     }))
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("Failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            info!("Received Ctrl+C, shutting down gracefully");
+        },
+        _ = terminate => {
+            info!("Received SIGTERM, shutting down gracefully");
+        }
+    }
 }
 
 async fn background_token_maintenance(config: Arc<Mutex<Config>>) {

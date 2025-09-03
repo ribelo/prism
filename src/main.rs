@@ -176,7 +176,6 @@ async fn validate_config() -> Result<()> {
             println!("Configuration is valid");
             println!("  Server: {}:{}", config.server.host, config.server.port);
             println!("  Providers: {}", config.providers.len());
-            println!("  Default provider: {}", config.routing.default_provider);
 
             if let Ok(config_dir) = Config::config_dir() {
                 println!("  Config directory: {}", config_dir.display());
@@ -322,7 +321,6 @@ async fn diagnose_tokens() -> Result<()> {
         Config::config_dir().unwrap_or_default().join("setu.toml")
     );
     println!("Providers configured: {}", config.providers.len());
-    println!("Default provider: {}", config.routing.default_provider);
 
     Ok(())
 }
@@ -340,11 +338,17 @@ fn init_tracing(verbose: bool) -> Result<()> {
     // Load config to get logging preferences
     let config = Config::load().unwrap_or_default();
 
+    // Pretty console logging to stderr
+    let console_layer = fmt::layer()
+        .with_writer(std::io::stderr)
+        .with_target(false)
+        .compact();
+
     let registry = tracing_subscriber::registry()
-        .with(fmt::layer().with_writer(std::io::stderr))
+        .with(console_layer)
         .with(filter);
 
-    // Add file logging if enabled
+    // Add structured file logging if enabled
     if config.server.log_file_enabled {
         let log_dir = config.log_dir()?;
 
@@ -367,9 +371,12 @@ fn init_tracing(verbose: bool) -> Result<()> {
 
         let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
-        registry
-            .with(fmt::layer().with_writer(non_blocking).with_ansi(false))
-            .init();
+        let file_layer = fmt::layer()
+            .with_writer(non_blocking)
+            .with_ansi(false)
+            .json();
+
+        registry.with(file_layer).init();
 
         // Keep guard alive by leaking it (simple approach for now)
         std::mem::forget(_guard);

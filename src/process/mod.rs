@@ -171,6 +171,12 @@ pub struct ProcessManager {
     server_was_already_running: bool,
 }
 
+impl Default for ProcessManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProcessManager {
     pub fn new() -> Self {
         Self {
@@ -234,13 +240,12 @@ impl ProcessManager {
         // For now, we keep the server running even after client exits
         // This provides better user experience for subsequent runs
         
-        if let Some(server) = self.server_child.take() {
-            if !self.server_was_already_running {
+        if let Some(server) = self.server_child.take()
+            && !self.server_was_already_running {
                 info!("Keeping server running for future use");
                 // We could optionally kill it here, but leaving it running is better UX
                 std::mem::forget(server); // Don't wait for it or kill it
             }
-        }
     }
 }
 

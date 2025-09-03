@@ -71,12 +71,11 @@ async fn handle_anthropic_auth() -> Result<()> {
                 .unwrap_or_else(|| crate::config::ProviderConfig {
                     r#type: "anthropic".to_string(),
                     endpoint: "https://api.anthropic.com".to_string(),
-                    models: vec![
-                        "claude-3-5-sonnet-20241022".to_string(),
-                        "claude-3-haiku-20240307".to_string(),
-                        "claude-3-opus-20240229".to_string(),
-                    ],
                     auth: received_auth_config.clone(),
+                    retry: crate::config::RetryConfig::default(),
+                    api_key: None,
+                    api_key_fallback: false,
+                    fallback_on_errors: vec![429],
                 });
             provider_config.auth = received_auth_config;
             config
@@ -114,12 +113,11 @@ async fn handle_google_auth() -> Result<()> {
                 crate::config::ProviderConfig {
                     r#type: "gemini".to_string(),
                     endpoint: "https://generativelanguage.googleapis.com".to_string(),
-                    models: vec![
-                        "gemini-1.5-pro".to_string(),
-                        "gemini-1.5-flash".to_string(),
-                        "gemini-pro".to_string(),
-                    ],
                     auth: auth_config.clone(),
+                    retry: crate::config::RetryConfig::default(),
+                    api_key: None,
+                    api_key_fallback: false,
+                    fallback_on_errors: vec![429],
                 }
             });
             provider_config.auth = auth_config;
@@ -165,14 +163,11 @@ async fn handle_openai_auth() -> Result<()> {
                 crate::config::ProviderConfig {
                     r#type: "openai".to_string(),
                     endpoint: "https://api.openai.com".to_string(),
-                    models: vec![
-                        "gpt-4o".to_string(),
-                        "gpt-4o-mini".to_string(),
-                        "gpt-4".to_string(),
-                        "o1-preview".to_string(),
-                        "o1-mini".to_string(),
-                    ],
                     auth: auth_config.clone(),
+                    retry: crate::config::RetryConfig::default(),
+                    api_key: None,
+                    api_key_fallback: false,
+                    fallback_on_errors: vec![429],
                 }
             });
             provider_config.auth = auth_config;

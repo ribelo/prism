@@ -1,9 +1,8 @@
 use crate::{config::Config, error::Result};
 use std::collections::HashMap;
 
-// Legacy RoutingDecision for backward compatibility
 #[derive(Debug, Clone)]
-pub struct LegacyRoutingDecision {
+pub struct RoutingDecision {
     pub provider: String,
     pub model: String,
     pub original_model: String,
@@ -12,22 +11,18 @@ pub struct LegacyRoutingDecision {
 }
 
 /// Name-based router that routes requests based on model name format
-pub struct NameBasedRouter {
-    default_provider: String,
-}
+pub struct NameBasedRouter {}
 
 impl NameBasedRouter {
-    pub fn new(config: Config) -> Self {
-        Self {
-            default_provider: config.routing.default_provider.clone(),
-        }
+    pub fn new(_config: Config) -> Self {
+        Self {}
     }
 
-    pub fn new_with_default_provider(default_provider: String) -> Self {
-        Self { default_provider }
+    pub fn new_with_default_provider(_default_provider: String) -> Self {
+        Self {}
     }
 
-    pub fn route_model(&self, model_name: &str) -> Result<LegacyRoutingDecision> {
+    pub fn route_model(&self, model_name: &str) -> Result<RoutingDecision> {
         // Parse query parameters first (e.g., "model?think=1000&effort=high")
         let (model_part, query_params) = if let Some(query_pos) = model_name.find('?') {
             let model = &model_name[..query_pos];
@@ -70,7 +65,7 @@ impl NameBasedRouter {
                 (model_suffix.to_string(), None)
             };
 
-            return Ok(LegacyRoutingDecision {
+            return Ok(RoutingDecision {
                 provider: provider.to_string(),
                 model: actual_model,
                 original_model: model_name.to_string(),
@@ -82,7 +77,7 @@ impl NameBasedRouter {
         // Route based on model name prefix patterns for simple names
         let provider = self.infer_provider_from_model(model_part)?;
 
-        Ok(LegacyRoutingDecision {
+        Ok(RoutingDecision {
             provider,
             model: model_part.to_string(),
             original_model: model_name.to_string(),
@@ -92,50 +87,44 @@ impl NameBasedRouter {
     }
 
     fn infer_provider_from_model(&self, model_name: &str) -> Result<String> {
-        // Common model name patterns
-        if model_name.starts_with("claude-") {
-            return Ok("anthropic".to_string());
+        // Infer provider based on model name patterns
+        if model_name.starts_with("claude") {
+            Ok("anthropic".to_string())
+        } else if model_name.starts_with("gpt") || model_name.starts_with("o1-") {
+            Ok("openrouter".to_string())
+        } else if model_name.starts_with("gemini") {
+            Ok("gemini".to_string())
+        } else {
+            // Default to openrouter for unknown models
+            Ok("openrouter".to_string())
         }
-
-        if model_name.starts_with("gemini-") {
-            return Ok("gemini".to_string());
-        }
-
-        // All OpenAI models - route through OpenRouter for better availability
-        // This includes reasoning models (o1-, o3-, o4-) and regular models (gpt-, text-)
-        if model_name.starts_with("o1-") || model_name.starts_with("o3-") || model_name.starts_with("o4-") 
-            || model_name.starts_with("gpt-") || model_name.starts_with("text-") {
-            return Ok("openrouter".to_string());
-        }
-
-        // Default to configured default provider
-        Ok(self.default_provider.clone())
     }
 }
 
-// Legacy type alias for backward compatibility
-pub type RoutingDecision = LegacyRoutingDecision;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::{AuthConfig, Config, ProviderConfig, RoutingConfig, ServerConfig};
-    use std::collections::HashMap;
+    use rustc_hash::FxHashMap;
 
     fn create_test_config() -> Config {
-        let mut providers = HashMap::new();
+        let mut providers = FxHashMap::default();
         providers.insert(
             "openrouter".to_string(),
             ProviderConfig {
                 r#type: "openrouter".to_string(),
                 endpoint: "https://openrouter.ai/api/v1".to_string(),
-                models: vec!["gpt-4".to_string()],
                 auth: AuthConfig {
                     oauth_access_token: None,
                     oauth_refresh_token: None,
                     oauth_expires: None,
                     project_id: None,
                 },
+                retry: crate::config::RetryConfig::default(),
+                api_key: None,
+                api_key_fallback: false,
+                fallback_on_errors: vec![429],
             },
         );
         providers.insert(
@@ -143,13 +132,16 @@ mod tests {
             ProviderConfig {
                 r#type: "anthropic".to_string(),
                 endpoint: "https://api.anthropic.com".to_string(),
-                models: vec!["claude-3-opus".to_string()],
                 auth: AuthConfig {
                     oauth_access_token: None,
                     oauth_refresh_token: None,
                     oauth_expires: None,
                     project_id: None,
                 },
+                retry: crate::config::RetryConfig::default(),
+                api_key: None,
+                api_key_fallback: false,
+                fallback_on_errors: vec![429],
             },
         );
 
@@ -157,16 +149,9 @@ mod tests {
             server: ServerConfig::default(),
             providers,
             routing: RoutingConfig {
-                default_provider: "openrouter".to_string(),
-                strategy: "composite".to_string(),
-                enable_fallback: true,
-                min_confidence: 0.0,
-                rules: HashMap::new(),
-                provider_priorities: Vec::new(),
-                provider_capabilities: HashMap::new(),
-                provider_aliases: HashMap::new(),
+                models: FxHashMap::default(),
             },
-            auth: HashMap::new(),
+            auth: FxHashMap::default(),
         }
     }
 
