@@ -1,7 +1,7 @@
 use crate::server::error_handling;
 use anthropic_ox::ChatRequest;
-use axum::http::StatusCode;
 use axum::body::Body;
+use axum::http::StatusCode;
 
 /// Parse Anthropic message request body
 pub async fn parse_chat_request(body: Body) -> Result<ChatRequest, StatusCode> {
@@ -35,7 +35,9 @@ pub async fn parse_chat_request(body: Body) -> Result<ChatRequest, StatusCode> {
 }
 
 /// Parse OpenAI chat request body (proper OpenAI format with string content)
-pub async fn parse_openai_chat_request(body: Body) -> Result<openai_ox::request::ChatRequest, StatusCode> {
+pub async fn parse_openai_chat_request(
+    body: Body,
+) -> Result<openai_ox::request::ChatRequest, StatusCode> {
     let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
         Ok(bytes) => bytes,
         Err(e) => {
@@ -96,4 +98,3 @@ pub async fn parse_gemini_request(body: Body) -> Result<serde_json::Value, Statu
         )),
     }
 }
-

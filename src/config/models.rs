@@ -12,21 +12,23 @@ impl ParsedModel {
     pub fn parse(model_name: &str) -> crate::error::Result<Self> {
         // Trim leading/trailing whitespace
         let model_name = model_name.trim();
-        
+
         // Reject names with consecutive slashes
         if model_name.contains("//") {
-            return Err(crate::error::SetuError::InvalidModel(
-                format!("Model name must be in format 'provider/model', got: {}", model_name)
-            ));
+            return Err(crate::error::SetuError::InvalidModel(format!(
+                "Model name must be in format 'provider/model', got: {}",
+                model_name
+            )));
         }
-        
+
         // Parse format: provider/model-name
         let parts: Vec<&str> = model_name.splitn(2, '/').collect();
-        
+
         if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
-            return Err(crate::error::SetuError::InvalidModel(
-                format!("Model name must be in format 'provider/model', got: {}", model_name)
-            ));
+            return Err(crate::error::SetuError::InvalidModel(format!(
+                "Model name must be in format 'provider/model', got: {}",
+                model_name
+            )));
         }
 
         Ok(Self {

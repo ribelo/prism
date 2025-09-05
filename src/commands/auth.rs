@@ -64,19 +64,20 @@ async fn handle_anthropic_auth() -> Result<()> {
     match AnthropicOAuth::exchange_code_for_token(&auth_code, &auth_result.verifier).await {
         Ok(received_auth_config) => {
             // Save to config
-            let mut provider_config = config
-                .providers
-                .get("anthropic")
-                .cloned()
-                .unwrap_or_else(|| crate::config::ProviderConfig {
-                    r#type: "anthropic".to_string(),
-                    endpoint: "https://api.anthropic.com".to_string(),
-                    auth: received_auth_config.clone(),
-                    retry: crate::config::RetryConfig::default(),
-                    api_key: None,
-                    api_key_fallback: false,
-                    fallback_on_errors: vec![429],
-                });
+            let mut provider_config =
+                config
+                    .providers
+                    .get("anthropic")
+                    .cloned()
+                    .unwrap_or_else(|| crate::config::ProviderConfig {
+                        r#type: "anthropic".to_string(),
+                        endpoint: "https://api.anthropic.com".to_string(),
+                        auth: received_auth_config.clone(),
+                        retry: crate::config::RetryConfig::default(),
+                        api_key: None,
+                        api_key_fallback: false,
+                        fallback_on_errors: vec![429],
+                    });
             provider_config.auth = received_auth_config;
             config
                 .providers
@@ -109,17 +110,18 @@ async fn handle_google_auth() -> Result<()> {
     match GoogleOAuth::try_gemini_cli_credentials().await {
         Ok(auth_config) => {
             // Save to config
-            let mut provider_config = config.providers.get("gemini").cloned().unwrap_or_else(|| {
-                crate::config::ProviderConfig {
-                    r#type: "gemini".to_string(),
-                    endpoint: "https://generativelanguage.googleapis.com".to_string(),
-                    auth: auth_config.clone(),
-                    retry: crate::config::RetryConfig::default(),
-                    api_key: None,
-                    api_key_fallback: false,
-                    fallback_on_errors: vec![429],
-                }
-            });
+            let mut provider_config =
+                config.providers.get("gemini").cloned().unwrap_or_else(|| {
+                    crate::config::ProviderConfig {
+                        r#type: "gemini".to_string(),
+                        endpoint: "https://generativelanguage.googleapis.com".to_string(),
+                        auth: auth_config.clone(),
+                        retry: crate::config::RetryConfig::default(),
+                        api_key: None,
+                        api_key_fallback: false,
+                        fallback_on_errors: vec![429],
+                    }
+                });
             provider_config.auth = auth_config;
             config
                 .providers
@@ -140,7 +142,9 @@ async fn handle_google_auth() -> Result<()> {
             println!("2. Run: gemini auth login");
             println!("3. Then retry: setu auth google");
             println!();
-            println!("Alternatively, set GEMINI_API_KEY environment variable to use API key authentication.");
+            println!(
+                "Alternatively, set GEMINI_API_KEY environment variable to use API key authentication."
+            );
         }
     }
 
@@ -159,17 +163,18 @@ async fn handle_openai_auth() -> Result<()> {
     match OpenAIOAuth::try_codex_cli_credentials().await {
         Ok(auth_config) => {
             // Save to config
-            let mut provider_config = config.providers.get("openai").cloned().unwrap_or_else(|| {
-                crate::config::ProviderConfig {
-                    r#type: "openai".to_string(),
-                    endpoint: "https://api.openai.com".to_string(),
-                    auth: auth_config.clone(),
-                    retry: crate::config::RetryConfig::default(),
-                    api_key: None,
-                    api_key_fallback: false,
-                    fallback_on_errors: vec![429],
-                }
-            });
+            let mut provider_config =
+                config.providers.get("openai").cloned().unwrap_or_else(|| {
+                    crate::config::ProviderConfig {
+                        r#type: "openai".to_string(),
+                        endpoint: "https://api.openai.com".to_string(),
+                        auth: auth_config.clone(),
+                        retry: crate::config::RetryConfig::default(),
+                        api_key: None,
+                        api_key_fallback: false,
+                        fallback_on_errors: vec![429],
+                    }
+                });
             provider_config.auth = auth_config;
             config
                 .providers
@@ -181,7 +186,7 @@ async fn handle_openai_auth() -> Result<()> {
             println!("OpenAI authentication successful!");
             println!("   OAuth tokens loaded from codex CLI credentials.");
             println!("   You can now use OpenAI models through Setu.");
-            
+
             // Show token refresh info
             println!();
             println!("Token Info:");
@@ -197,9 +202,13 @@ async fn handle_openai_auth() -> Result<()> {
             println!("2. Run: codex auth login");
             println!("3. Then retry: setu auth openai");
             println!();
-            println!("Alternatively, set OPENAI_API_KEY environment variable to use API key authentication.");
+            println!(
+                "Alternatively, set OPENAI_API_KEY environment variable to use API key authentication."
+            );
             println!();
-            println!("Note: codex CLI provides OAuth tokens for ChatGPT Pro/Plus/Enterprise users.");
+            println!(
+                "Note: codex CLI provides OAuth tokens for ChatGPT Pro/Plus/Enterprise users."
+            );
         }
     }
 

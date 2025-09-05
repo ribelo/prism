@@ -1,8 +1,16 @@
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use setu::commands::auth::AuthCommands;
 use setu::commands::run::RunCommands;
 use setu::{Config, Result};
 use tracing::{error, info};
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum PayloadLogModeCli {
+    Off,
+    Truncated,
+    Full,
+    Auto,
+}
 
 #[derive(Parser)]
 #[command(name = "setu")]
@@ -12,9 +20,14 @@ struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    /// Verbose logging
-    #[arg(short, long, global = true)]
-    verbose: bool,
+    /// Verbose logging (-v, -vv, -vvv)
+    #[arg(short = 'v', long = "verbose", action = ArgAction::Count, global = true)]
+    verbose: u8,
+
+    /// Payload logging mode: off|truncated|full|auto
+    /// auto -> truncated when -v or higher is set, else off
+    #[arg(long = "payload-log", value_enum, default_value = "auto", global = true)]
+    payload_log: PayloadLogModeCli,
 }
 
 #[derive(Subcommand)]
@@ -63,13 +76,12 @@ async fn handle_run_command(run_command: RunCommands) -> Result<()> {
     setu::commands::run::handle_run_command(run_command).await
 }
 
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Initialize tracing
-    init_tracing(cli.verbose)?;
+    init_tracing(cli.verbose, cli.payload_log)?;
 
     match cli.command {
         Commands::Start { host, port } => start_server(host, port).await,
@@ -325,14 +337,24 @@ async fn diagnose_tokens() -> Result<()> {
     Ok(())
 }
 
-fn init_tracing(verbose: bool) -> Result<()> {
+fn init_tracing(verbose: u8, payload_log_cli: PayloadLogModeCli) -> Result<()> {
     use tracing_appender::rolling::{RollingFileAppender, Rotation};
     use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
-    let filter = if verbose {
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"))
-    } else {
+    let filter = if std::env::var("RUST_LOG").is_ok() {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
+    } else {
+        // Avoid enabling noisy logs from dependencies.
+        // -v, -vv, -vvv => debug only for our crate; others stay at info
+        // -vvvv => trace only for our crate; others stay at info
+        let directive = if verbose >= 4 {
+            "info,setu=trace"
+        } else if verbose >= 1 {
+            "info,setu=debug"
+        } else {
+            "info"
+        };
+        EnvFilter::new(directive)
     };
 
     // Load config to get logging preferences
@@ -383,6 +405,21 @@ fn init_tracing(verbose: bool) -> Result<()> {
     } else {
         registry.init();
     }
+
+    // Configure payload logging mode
+    use setu::server::error_handling as eh;
+    let payload_mode = match payload_log_cli {
+        PayloadLogModeCli::Off => eh::PayloadLogMode::Off,
+        PayloadLogModeCli::Truncated => eh::PayloadLogMode::Truncated,
+        PayloadLogModeCli::Full => eh::PayloadLogMode::Full,
+        PayloadLogModeCli::Auto => {
+            if verbose >= 3 { eh::PayloadLogMode::SummaryV3 }
+            else if verbose >= 2 { eh::PayloadLogMode::SummaryV2 }
+            else if verbose >= 1 { eh::PayloadLogMode::SummaryV1 }
+            else { eh::PayloadLogMode::Off }
+        }
+    };
+    eh::set_payload_log_mode(payload_mode);
 
     Ok(())
 }

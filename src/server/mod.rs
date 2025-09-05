@@ -9,17 +9,22 @@ use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
+use std::time::SystemTime;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 
-use crate::{auth::{anthropic::AnthropicOAuth, AuthCache}, config::Config, error::Result};
+use crate::{
+    auth::{AuthCache, anthropic::AnthropicOAuth},
+    config::Config,
+    error::Result,
+};
 
-pub mod routes;
+pub mod error_handling;
 pub mod parameter_mapping;
 pub mod providers;
-pub mod error_handling;
+pub mod routes;
 
 // Global timestamp for background task monitoring
 static LAST_TOKEN_CHECK: AtomicU64 = AtomicU64::new(0);
@@ -29,6 +34,8 @@ static LAST_TOKEN_CHECK: AtomicU64 = AtomicU64::new(0);
 pub struct AppState {
     pub config: Arc<Mutex<Config>>,
     pub auth_cache: Arc<AuthCache>,
+    pub last_config_check: Arc<AtomicU64>,
+    pub config_path: std::path::PathBuf,
 }
 
 pub struct SetuServer {
@@ -42,9 +49,12 @@ impl SetuServer {
     }
 
     pub async fn start(&self) -> Result<()> {
+        let config_path = Config::config_dir()?.join("setu.toml");
         let app_state = AppState {
             config: Arc::new(Mutex::new(self.config.clone())),
             auth_cache: Arc::new(self.auth_cache.clone()),
+            last_config_check: Arc::new(AtomicU64::new(0)),
+            config_path,
         };
 
         let app = Router::new()
@@ -56,8 +66,11 @@ impl SetuServer {
             .route("/v1/models", get(routes::openai_models))
             // Anthropic-compatible routes
             .route("/v1/messages", post(routes::anthropic_messages))
-            // Gemini-compatible routes  
-            .route("/v1beta/models/{*model_path}", post(routes::gemini_generate_content))
+            // Gemini-compatible routes
+            .route(
+                "/v1beta/models/{*model_path}",
+                post(routes::gemini_generate_content),
+            )
             // Health check
             .route("/health", get(health_check))
             // Add shared application state
@@ -101,9 +114,17 @@ impl SetuServer {
             }
         });
 
+        // Spawn SIGHUP handler for manual config reload
+        #[cfg(unix)]
+        {
+            let sighup_config = app_state.config.clone();
+            tokio::spawn(async move {
+                handle_sighup(sighup_config).await;
+            });
+        }
+
         // Graceful shutdown handling
-        let graceful = axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal());
+        let graceful = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal());
 
         graceful.await?;
 
@@ -136,6 +157,79 @@ async fn health_check() -> Json<Value> {
             "seconds_since_last_check": if last_check > 0 { now - last_check } else { 0 }
         }
     }))
+}
+
+/// Check if config file has changed and reload if needed
+async fn check_and_reload_config(app_state: &AppState) {
+    // Only check every 5 seconds to avoid too frequent checks
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let last_check = app_state.last_config_check.load(Ordering::Relaxed);
+    if now - last_check < 5 {
+        return;
+    }
+
+    app_state.last_config_check.store(now, Ordering::Relaxed);
+
+    // Check if file has been modified
+    if let Ok(metadata) = std::fs::metadata(&app_state.config_path)
+        && let Ok(modified) = metadata.modified()
+    {
+        let modified_timestamp = modified
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        // If file was modified after our last check
+        if modified_timestamp > last_check {
+            // Try to reload config
+            match Config::load() {
+                Ok(new_config) => {
+                    let mut config_guard = app_state.config.lock().await;
+                    *config_guard = new_config;
+                    tracing::info!("Config automatically reloaded due to file change");
+                }
+                Err(e) => {
+                    tracing::error!("Failed to reload config: {}", e);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+async fn handle_sighup(config: Arc<Mutex<Config>>) {
+    use tokio::signal::unix::{SignalKind, signal};
+
+    let mut stream = match signal(SignalKind::hangup()) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("Failed to install SIGHUP handler: {}", e);
+            return;
+        }
+    };
+
+    tracing::info!("SIGHUP handler installed - send SIGHUP to reload config");
+
+    loop {
+        stream.recv().await;
+        tracing::info!("Received SIGHUP signal, reloading config...");
+
+        // Reload config directly
+        match Config::load() {
+            Ok(new_config) => {
+                let mut config_guard = config.lock().await;
+                *config_guard = new_config;
+                tracing::info!("Config reloaded via SIGHUP signal");
+            }
+            Err(e) => {
+                tracing::error!("Failed to reload config on SIGHUP: {}", e);
+            }
+        }
+    }
 }
 
 async fn shutdown_signal() {

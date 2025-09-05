@@ -3,15 +3,18 @@ use axum::{
     extract::State,
     http::{HeaderMap, Request, StatusCode},
 };
-use serde_json::json;
 use rustc_hash::FxHashMap;
-use std::sync::Arc;
+use serde_json::json;
+use std::sync::{Arc, atomic::AtomicU64};
 use tokio::sync::Mutex;
 
 use setu::{
     auth::{AuthCache, AuthMethod, initialize_auth_cache},
-    config::{AuthConfig, Config, ProviderConfig, RoutingConfig, ServerConfig, RetryConfig},
-    server::{routes::{anthropic_messages, openai_chat_completions, openai_models}, AppState},
+    config::{AuthConfig, Config, ProviderConfig, RetryConfig, RoutingConfig, ServerConfig},
+    server::{
+        AppState,
+        routes::{anthropic_messages, openai_chat_completions, openai_models},
+    },
 };
 use std::time::SystemTime;
 
@@ -44,12 +47,12 @@ async fn create_test_app_state() -> AppState {
 
     AppState {
         config: Arc::new(Mutex::new(Config {
-        server: ServerConfig::default(),
-        providers,
-        routing: RoutingConfig {
-            models: FxHashMap::default(),
-        },
-        auth: FxHashMap::default(),
+            server: ServerConfig::default(),
+            providers,
+            routing: RoutingConfig {
+                models: FxHashMap::default(),
+            },
+            auth: FxHashMap::default(),
         })),
         auth_cache: Arc::new(initialize_auth_cache().await.unwrap_or_else(|_| AuthCache {
             anthropic_method: AuthMethod::ApiKey,
@@ -57,6 +60,8 @@ async fn create_test_app_state() -> AppState {
             openai_method: AuthMethod::ApiKey,
             cached_at: SystemTime::now(),
         })),
+        last_config_check: Arc::new(AtomicU64::new(0)),
+        config_path: std::path::PathBuf::from("/tmp/test_setu.toml"),
     }
 }
 
@@ -319,7 +324,7 @@ async fn test_claude_code_detection() {
 #[ignore] // Integration test that makes network calls
 async fn test_openai_endpoints() {
     let app_state = create_test_app_state().await;
-    
+
     // Test not implemented chat completions
     let request = Request::builder()
         .method("POST")

@@ -3,15 +3,15 @@ use axum::{
     extract::{Path, State},
     http::{Request, StatusCode},
 };
-use serde_json::json;
 use rustc_hash::FxHashMap;
-use std::sync::Arc;
+use serde_json::json;
+use std::sync::{Arc, atomic::AtomicU64};
 use tokio::sync::Mutex;
 
 use setu::{
     auth::{AuthCache, AuthMethod, initialize_auth_cache},
-    config::{AuthConfig, Config, ProviderConfig, RoutingConfig, ServerConfig, RetryConfig},
-    server::{routes::gemini_generate_content, AppState},
+    config::{AuthConfig, Config, ProviderConfig, RetryConfig, RoutingConfig, ServerConfig},
+    server::{AppState, routes::gemini_generate_content},
 };
 use std::time::SystemTime;
 
@@ -56,12 +56,12 @@ async fn create_test_app_state() -> AppState {
 
     AppState {
         config: Arc::new(Mutex::new(Config {
-        server: ServerConfig::default(),
-        providers,
-        routing: RoutingConfig {
-            models: FxHashMap::default(),
-        },
-        auth: FxHashMap::default(),
+            server: ServerConfig::default(),
+            providers,
+            routing: RoutingConfig {
+                models: FxHashMap::default(),
+            },
+            auth: FxHashMap::default(),
         })),
         auth_cache: Arc::new(initialize_auth_cache().await.unwrap_or_else(|_| AuthCache {
             anthropic_method: AuthMethod::ApiKey,
@@ -69,6 +69,8 @@ async fn create_test_app_state() -> AppState {
             openai_method: AuthMethod::ApiKey,
             cached_at: SystemTime::now(),
         })),
+        last_config_check: Arc::new(AtomicU64::new(0)),
+        config_path: std::path::PathBuf::from("/tmp/test_setu.toml"),
     }
 }
 
@@ -76,11 +78,11 @@ async fn create_test_app_state() -> AppState {
 #[tokio::test]
 async fn test_gemini_endpoint_url_format() {
     let app_state = create_test_app_state().await;
-    
+
     let valid_request_body = json!({
         "contents": [
             {
-                "role": "user", 
+                "role": "user",
                 "parts": [{"text": "Hello"}]
             }
         ]
@@ -95,11 +97,12 @@ async fn test_gemini_endpoint_url_format() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state.clone()), 
-        Path("gemini-1.5-flash:generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state.clone()),
+        Path("gemini-1.5-flash:generateContent".to_string()),
+        request,
+    )
+    .await;
+
     // Should fail due to authentication, but URL parsing should succeed
     assert!(response.is_err());
     // Authentication failure typically returns UNAUTHORIZED or BAD_GATEWAY
@@ -107,9 +110,9 @@ async fn test_gemini_endpoint_url_format() {
     println!("Actual status code: {:?}", status);
     // Allow for various error codes since this is testing URL parsing, not auth
     assert!(
-        status == StatusCode::UNAUTHORIZED 
-        || status == StatusCode::BAD_GATEWAY
-        || status == StatusCode::INTERNAL_SERVER_ERROR
+        status == StatusCode::UNAUTHORIZED
+            || status == StatusCode::BAD_GATEWAY
+            || status == StatusCode::INTERNAL_SERVER_ERROR
     );
 }
 
@@ -117,11 +120,11 @@ async fn test_gemini_endpoint_url_format() {
 #[tokio::test]
 async fn test_empty_model_name() {
     let app_state = create_test_app_state().await;
-    
+
     let request_body = json!({
         "contents": [
             {
-                "role": "user", 
+                "role": "user",
                 "parts": [{"text": "Hello"}]
             }
         ]
@@ -136,11 +139,12 @@ async fn test_empty_model_name() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state.clone()), 
-        Path(":generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state.clone()),
+        Path(":generateContent".to_string()),
+        request,
+    )
+    .await;
+
     assert!(response.is_err());
     assert_eq!(response.unwrap_err(), StatusCode::BAD_REQUEST);
 
@@ -153,11 +157,12 @@ async fn test_empty_model_name() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state.clone()), 
-        Path("   :generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state.clone()),
+        Path("   :generateContent".to_string()),
+        request,
+    )
+    .await;
+
     assert!(response.is_err());
     assert_eq!(response.unwrap_err(), StatusCode::BAD_REQUEST);
 }
@@ -166,11 +171,11 @@ async fn test_empty_model_name() {
 #[tokio::test]
 async fn test_invalid_endpoint_suffix() {
     let app_state = create_test_app_state().await;
-    
+
     let request_body = json!({
         "contents": [
             {
-                "role": "user", 
+                "role": "user",
                 "parts": [{"text": "Hello"}]
             }
         ]
@@ -185,11 +190,12 @@ async fn test_invalid_endpoint_suffix() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state.clone()), 
-        Path("gemini-1.5-flash:generate".to_string()), 
-        request
-    ).await;
-    
+        State(app_state.clone()),
+        Path("gemini-1.5-flash:generate".to_string()),
+        request,
+    )
+    .await;
+
     assert!(response.is_err());
     assert_eq!(response.unwrap_err(), StatusCode::BAD_REQUEST);
 
@@ -202,11 +208,12 @@ async fn test_invalid_endpoint_suffix() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state.clone()), 
-        Path("gemini-1.5-flash".to_string()), 
-        request
-    ).await;
-    
+        State(app_state.clone()),
+        Path("gemini-1.5-flash".to_string()),
+        request,
+    )
+    .await;
+
     assert!(response.is_err());
     assert_eq!(response.unwrap_err(), StatusCode::BAD_REQUEST);
 
@@ -219,18 +226,19 @@ async fn test_invalid_endpoint_suffix() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state), 
-        Path("gemini:1.5:flash:generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state),
+        Path("gemini:1.5:flash:generateContent".to_string()),
+        request,
+    )
+    .await;
+
     // Should still work - we only check the suffix
     assert!(response.is_err());
     let status = response.unwrap_err();
     assert!(
-        status == StatusCode::UNAUTHORIZED 
-        || status == StatusCode::BAD_GATEWAY
-        || status == StatusCode::INTERNAL_SERVER_ERROR
+        status == StatusCode::UNAUTHORIZED
+            || status == StatusCode::BAD_GATEWAY
+            || status == StatusCode::INTERNAL_SERVER_ERROR
     );
 }
 
@@ -238,11 +246,11 @@ async fn test_invalid_endpoint_suffix() {
 #[tokio::test]
 async fn test_url_encoded_model_names() {
     let app_state = create_test_app_state().await;
-    
+
     let request_body = json!({
         "contents": [
             {
-                "role": "user", 
+                "role": "user",
                 "parts": [{"text": "Hello"}]
             }
         ]
@@ -257,18 +265,19 @@ async fn test_url_encoded_model_names() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state.clone()), 
-        Path("gemini%2D1.5%2Dflash:generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state.clone()),
+        Path("gemini%2D1.5%2Dflash:generateContent".to_string()),
+        request,
+    )
+    .await;
+
     // Should handle URL decoding and fail at authentication level
     assert!(response.is_err());
     let status = response.unwrap_err();
     assert!(
-        status == StatusCode::UNAUTHORIZED 
-        || status == StatusCode::BAD_GATEWAY
-        || status == StatusCode::INTERNAL_SERVER_ERROR
+        status == StatusCode::UNAUTHORIZED
+            || status == StatusCode::BAD_GATEWAY
+            || status == StatusCode::INTERNAL_SERVER_ERROR
     );
 
     // Test model with special characters that would be URL encoded
@@ -280,20 +289,21 @@ async fn test_url_encoded_model_names() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state), 
-        Path("openrouter/z-ai/glm-4.5:generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state),
+        Path("openrouter/z-ai/glm-4.5:generateContent".to_string()),
+        request,
+    )
+    .await;
+
     // Response can either succeed (if API keys available) or fail (if not)
     match response {
-        Ok(_) => {}, // Success - API keys are available and conversion worked
+        Ok(_) => {} // Success - API keys are available and conversion worked
         Err(status) => {
             // Should route to openrouter and fail at authentication
             assert!(
-                status == StatusCode::UNAUTHORIZED 
-                || status == StatusCode::BAD_GATEWAY
-                || status == StatusCode::INTERNAL_SERVER_ERROR
+                status == StatusCode::UNAUTHORIZED
+                    || status == StatusCode::BAD_GATEWAY
+                    || status == StatusCode::INTERNAL_SERVER_ERROR
             );
         }
     }
@@ -303,11 +313,11 @@ async fn test_url_encoded_model_names() {
 #[tokio::test]
 async fn test_provider_routing() {
     let app_state = create_test_app_state().await;
-    
+
     let request_body = json!({
         "contents": [
             {
-                "role": "user", 
+                "role": "user",
                 "parts": [{"text": "Hello"}]
             }
         ]
@@ -322,20 +332,21 @@ async fn test_provider_routing() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state.clone()), 
-        Path("openrouter/z-ai/glm-4.5:generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state.clone()),
+        Path("openrouter/z-ai/glm-4.5:generateContent".to_string()),
+        request,
+    )
+    .await;
+
     // Response can either succeed (if API keys available) or fail (if not)
     match response {
-        Ok(_) => {}, // Success - API keys are available and conversion worked
+        Ok(_) => {} // Success - API keys are available and conversion worked
         Err(status) => {
             // Should route to OpenRouter provider (fails due to no auth)
             assert!(
-                status == StatusCode::UNAUTHORIZED 
-                || status == StatusCode::BAD_GATEWAY
-                || status == StatusCode::INTERNAL_SERVER_ERROR
+                status == StatusCode::UNAUTHORIZED
+                    || status == StatusCode::BAD_GATEWAY
+                    || status == StatusCode::INTERNAL_SERVER_ERROR
             );
         }
     }
@@ -349,20 +360,21 @@ async fn test_provider_routing() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state.clone()), 
-        Path("anthropic/claude-3-5-sonnet-20241022:generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state.clone()),
+        Path("anthropic/claude-3-5-sonnet-20241022:generateContent".to_string()),
+        request,
+    )
+    .await;
+
     // Response can either succeed (if API keys available) or fail (if not)
     match response {
-        Ok(_) => {}, // Success - API keys are available and conversion worked
+        Ok(_) => {} // Success - API keys are available and conversion worked
         Err(status) => {
             // Should route to Anthropic provider (fails due to no auth)
             assert!(
-                status == StatusCode::UNAUTHORIZED 
-                || status == StatusCode::BAD_GATEWAY
-                || status == StatusCode::INTERNAL_SERVER_ERROR
+                status == StatusCode::UNAUTHORIZED
+                    || status == StatusCode::BAD_GATEWAY
+                    || status == StatusCode::INTERNAL_SERVER_ERROR
             );
         }
     }
@@ -376,20 +388,21 @@ async fn test_provider_routing() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state.clone()), 
-        Path("gemini-1.5-flash:generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state.clone()),
+        Path("gemini-1.5-flash:generateContent".to_string()),
+        request,
+    )
+    .await;
+
     // Response can either succeed (if API keys available) or fail (if not)
     match response {
-        Ok(_) => {}, // Success - API keys are available and conversion worked
+        Ok(_) => {} // Success - API keys are available and conversion worked
         Err(status) => {
             // Should route to native Gemini provider (fails due to no auth)
             assert!(
-                status == StatusCode::UNAUTHORIZED 
-                || status == StatusCode::BAD_GATEWAY
-                || status == StatusCode::INTERNAL_SERVER_ERROR
+                status == StatusCode::UNAUTHORIZED
+                    || status == StatusCode::BAD_GATEWAY
+                    || status == StatusCode::INTERNAL_SERVER_ERROR
             );
         }
     }
@@ -403,20 +416,21 @@ async fn test_provider_routing() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state), 
-        Path("unknown-model-12345:generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state),
+        Path("unknown-model-12345:generateContent".to_string()),
+        request,
+    )
+    .await;
+
     // Response can either succeed (if API keys available) or fail (if not)
     match response {
-        Ok(_) => {}, // Success - API keys are available and conversion worked
+        Ok(_) => {} // Success - API keys are available and conversion worked
         Err(status) => {
             // Should route to default provider (OpenRouter) and fail
             assert!(
-                status == StatusCode::UNAUTHORIZED 
-                || status == StatusCode::BAD_GATEWAY
-                || status == StatusCode::INTERNAL_SERVER_ERROR
+                status == StatusCode::UNAUTHORIZED
+                    || status == StatusCode::BAD_GATEWAY
+                    || status == StatusCode::INTERNAL_SERVER_ERROR
             );
         }
     }
@@ -436,11 +450,12 @@ async fn test_malformed_request_body() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state.clone()), 
-        Path("gemini-1.5-flash:generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state.clone()),
+        Path("gemini-1.5-flash:generateContent".to_string()),
+        request,
+    )
+    .await;
+
     assert!(response.is_err());
     assert_eq!(response.unwrap_err(), StatusCode::BAD_REQUEST);
 
@@ -453,11 +468,12 @@ async fn test_malformed_request_body() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state.clone()), 
-        Path("gemini-1.5-flash:generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state.clone()),
+        Path("gemini-1.5-flash:generateContent".to_string()),
+        request,
+    )
+    .await;
+
     assert!(response.is_err());
     assert_eq!(response.unwrap_err(), StatusCode::BAD_REQUEST);
 
@@ -470,11 +486,12 @@ async fn test_malformed_request_body() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state), 
-        Path("gemini-1.5-flash:generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state),
+        Path("gemini-1.5-flash:generateContent".to_string()),
+        request,
+    )
+    .await;
+
     assert!(response.is_err());
     assert_eq!(response.unwrap_err(), StatusCode::BAD_REQUEST);
 }
@@ -483,11 +500,11 @@ async fn test_malformed_request_body() {
 #[tokio::test]
 async fn test_special_characters_in_model_names() {
     let app_state = create_test_app_state().await;
-    
+
     let request_body = json!({
         "contents": [
             {
-                "role": "user", 
+                "role": "user",
                 "parts": [{"text": "Hello"}]
             }
         ]
@@ -502,19 +519,20 @@ async fn test_special_characters_in_model_names() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state.clone()), 
-        Path("gemini-1.5-pro@001:generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state.clone()),
+        Path("gemini-1.5-pro@001:generateContent".to_string()),
+        request,
+    )
+    .await;
+
     // Response can either succeed (if API keys available) or fail (if not)
     match response {
-        Ok(_) => {}, // Success - API keys are available and conversion worked
+        Ok(_) => {} // Success - API keys are available and conversion worked
         Err(status) => {
             assert!(
-                status == StatusCode::UNAUTHORIZED 
-                || status == StatusCode::BAD_GATEWAY
-                || status == StatusCode::INTERNAL_SERVER_ERROR
+                status == StatusCode::UNAUTHORIZED
+                    || status == StatusCode::BAD_GATEWAY
+                    || status == StatusCode::INTERNAL_SERVER_ERROR
             );
         }
     }
@@ -528,19 +546,20 @@ async fn test_special_characters_in_model_names() {
         .unwrap();
 
     let response = gemini_generate_content(
-        State(app_state), 
-        Path("gemini_2_5_flash_v1:generateContent".to_string()), 
-        request
-    ).await;
-    
+        State(app_state),
+        Path("gemini_2_5_flash_v1:generateContent".to_string()),
+        request,
+    )
+    .await;
+
     // Response can either succeed (if API keys available) or fail (if not)
     match response {
-        Ok(_) => {}, // Success - API keys are available and conversion worked
+        Ok(_) => {} // Success - API keys are available and conversion worked
         Err(status) => {
             assert!(
-                status == StatusCode::UNAUTHORIZED 
-                || status == StatusCode::BAD_GATEWAY
-                || status == StatusCode::INTERNAL_SERVER_ERROR
+                status == StatusCode::UNAUTHORIZED
+                    || status == StatusCode::BAD_GATEWAY
+                    || status == StatusCode::INTERNAL_SERVER_ERROR
             );
         }
     }

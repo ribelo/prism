@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use url::Url;
 
-use crate::auth::common::{analyze_token_source, choose_best_token_source, TokenInfo};
+use crate::auth::common::{TokenInfo, analyze_token_source, choose_best_token_source};
 use crate::config::AuthConfig;
 use crate::error::{Result, SetuError};
 
@@ -270,7 +270,7 @@ impl AnthropicOAuth {
             if auth_config.oauth_refresh_token.is_some() {
                 tracing::debug!("Token expired, refreshing automatically");
                 Self::refresh_token(auth_config).await?;
-                
+
                 if persist_tokens {
                     // Simple persistence without full config reload
                     if let Err(e) = Self::persist_tokens_to_config(auth_config).await {
@@ -279,11 +279,14 @@ impl AnthropicOAuth {
                     }
                 }
             } else {
-                return Err(SetuError::Other("No refresh token available and access token is expired".to_string()));
+                return Err(SetuError::Other(
+                    "No refresh token available and access token is expired".to_string(),
+                ));
             }
         }
-        
-        auth_config.oauth_access_token
+
+        auth_config
+            .oauth_access_token
             .clone()
             .ok_or_else(|| SetuError::Other("No access token available after refresh".to_string()))
     }
@@ -291,7 +294,7 @@ impl AnthropicOAuth {
     /// Simple token persistence helper
     async fn persist_tokens_to_config(auth_config: &AuthConfig) -> Result<()> {
         use crate::Config;
-        
+
         let mut config = Config::load()?;
         if let Some(provider) = config.providers.get_mut("anthropic") {
             provider.auth = auth_config.clone();
@@ -344,5 +347,4 @@ impl AnthropicOAuth {
 
         Ok(())
     }
-
 }

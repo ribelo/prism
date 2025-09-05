@@ -151,7 +151,6 @@ impl AuthConfig {
     }
 }
 
-
 fn default_host() -> String {
     "127.0.0.1".to_string()
 }
@@ -163,7 +162,6 @@ fn default_port() -> u16 {
 fn default_log_level() -> String {
     "info".to_string()
 }
-
 
 fn default_fallback_errors() -> Vec<u16> {
     vec![429] // Rate limit error
@@ -228,7 +226,8 @@ impl Config {
         let config = Figment::new()
             .merge(Toml::file(&config_file))
             .merge(Env::prefixed("SETU_"))
-            .extract().map_err(|e| SetuError::Config(Box::new(e)))?;
+            .extract()
+            .map_err(|e| SetuError::Config(Box::new(e)))?;
 
         let mut config: Config = config;
         config.interpolate_api_keys();
@@ -236,7 +235,7 @@ impl Config {
     }
 
     /// Interpolate environment variables in API keys after loading config
-    fn interpolate_api_keys(&mut self) {
+    pub fn interpolate_api_keys(&mut self) {
         for provider in self.providers.values_mut() {
             if let Some(ref api_key) = provider.api_key {
                 provider.api_key = Some(interpolate_env_vars(api_key));
@@ -274,7 +273,7 @@ impl Config {
 
         // Write config file with restricted permissions (600 - owner read/write only)
         std::fs::write(&config_file, toml_string)?;
-        
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -287,9 +286,8 @@ impl Config {
 }
 
 fn get_config_dir() -> Result<PathBuf> {
-    let project_dirs = ProjectDirs::from("", "", "setu").ok_or_else(|| {
-        SetuError::Other("Could not determine config directory".to_string())
-    })?;
+    let project_dirs = ProjectDirs::from("", "", "setu")
+        .ok_or_else(|| SetuError::Other("Could not determine config directory".to_string()))?;
 
     let config_dir = project_dirs.config_dir();
     std::fs::create_dir_all(config_dir)?;
@@ -298,9 +296,8 @@ fn get_config_dir() -> Result<PathBuf> {
 }
 
 fn get_data_dir() -> Result<PathBuf> {
-    let project_dirs = ProjectDirs::from("", "", "setu").ok_or_else(|| {
-        SetuError::Other("Could not determine data directory".to_string())
-    })?;
+    let project_dirs = ProjectDirs::from("", "", "setu")
+        .ok_or_else(|| SetuError::Other("Could not determine data directory".to_string()))?;
 
     let data_dir = project_dirs.data_dir();
     std::fs::create_dir_all(data_dir)?;
@@ -309,10 +306,10 @@ fn get_data_dir() -> Result<PathBuf> {
 }
 
 /// Interpolate environment variables in a string
-/// Supports ${VAR} syntax, e.g., "${ANTHROPIC_API_KEY}" 
+/// Supports ${VAR} syntax, e.g., "${ANTHROPIC_API_KEY}"
 fn interpolate_env_vars(value: &str) -> String {
     let mut result = value.to_string();
-    
+
     // Find all ${VAR} patterns
     while let Some(start) = result.find("${") {
         if let Some(end) = result[start..].find('}') {
@@ -323,7 +320,7 @@ fn interpolate_env_vars(value: &str) -> String {
             break; // Malformed pattern, stop processing
         }
     }
-    
+
     result
 }
 
@@ -339,9 +336,15 @@ mod tests {
         }
 
         assert_eq!(interpolate_env_vars("${TEST_VAR}"), "test_value");
-        assert_eq!(interpolate_env_vars("prefix_${TEST_VAR}_suffix"), "prefix_test_value_suffix");
-        assert_eq!(interpolate_env_vars("${TEST_VAR}_${ANOTHER_VAR}"), "test_value_another_value");
-        
+        assert_eq!(
+            interpolate_env_vars("prefix_${TEST_VAR}_suffix"),
+            "prefix_test_value_suffix"
+        );
+        assert_eq!(
+            interpolate_env_vars("${TEST_VAR}_${ANOTHER_VAR}"),
+            "test_value_another_value"
+        );
+
         unsafe {
             std::env::remove_var("TEST_VAR");
             std::env::remove_var("ANOTHER_VAR");
@@ -351,7 +354,10 @@ mod tests {
     #[test]
     fn test_interpolate_env_vars_missing() {
         assert_eq!(interpolate_env_vars("${NONEXISTENT_VAR}"), "");
-        assert_eq!(interpolate_env_vars("prefix_${NONEXISTENT_VAR}_suffix"), "prefix__suffix");
+        assert_eq!(
+            interpolate_env_vars("prefix_${NONEXISTENT_VAR}_suffix"),
+            "prefix__suffix"
+        );
     }
 
     #[test]
@@ -360,12 +366,15 @@ mod tests {
         assert_eq!(interpolate_env_vars("${BROKEN"), "${BROKEN");
         assert_eq!(interpolate_env_vars("${INCOMPLETE_VAR"), "${INCOMPLETE_VAR");
         assert_eq!(interpolate_env_vars("${}"), "");
-        
+
         // Test mixed valid/invalid
         unsafe {
             std::env::set_var("VALID_VAR", "valid");
         }
-        assert_eq!(interpolate_env_vars("${VALID_VAR}_${BROKEN"), "valid_${BROKEN");
+        assert_eq!(
+            interpolate_env_vars("${VALID_VAR}_${BROKEN"),
+            "valid_${BROKEN"
+        );
         unsafe {
             std::env::remove_var("VALID_VAR");
         }
@@ -381,20 +390,20 @@ mod tests {
     fn test_interpolate_env_vars_nested_patterns() {
         // Edge case: patterns that look nested - processes first ${VAR} and leaves rest
         assert_eq!(interpolate_env_vars("${${VAR}}"), "}"); // ${VAR} becomes empty, leaving }
-        
-        // More realistic nested-looking case - processes ${SUFFIX} first, leaving malformed pattern  
+
+        // More realistic nested-looking case - processes ${SUFFIX} first, leaving malformed pattern
         assert_eq!(interpolate_env_vars("${PREFIX_${SUFFIX}}"), "}"); // ${SUFFIX} becomes empty, leaving }
     }
 
-    #[test] 
+    #[test]
     fn test_model_route_serialization() {
         use serde_json;
-        
+
         // Test single model serialization
         let single_route = ModelRoute::Single("openai/gpt-4o".to_string());
         let json = serde_json::to_string(&single_route).unwrap();
         assert_eq!(json, "\"openai/gpt-4o\"");
-        
+
         // Test deserialization back
         let deserialized: ModelRoute = serde_json::from_str(&json).unwrap();
         match deserialized {
@@ -409,7 +418,7 @@ mod tests {
         ]);
         let json = serde_json::to_string(&multi_route).unwrap();
         assert_eq!(json, "[\"openai/gpt-4o\",\"anthropic/claude-3-5-sonnet\"]");
-        
+
         // Test deserialization back
         let deserialized: ModelRoute = serde_json::from_str(&json).unwrap();
         match deserialized {
@@ -417,7 +426,7 @@ mod tests {
                 assert_eq!(models.len(), 2);
                 assert_eq!(models[0], "openai/gpt-4o");
                 assert_eq!(models[1], "anthropic/claude-3-5-sonnet");
-            },
+            }
             _ => panic!("Should be Multiple variant"),
         }
     }
@@ -443,7 +452,10 @@ mod tests {
 
         // Test deserialization
         let deserialized: ProviderConfig = toml::from_str(&toml_string).unwrap();
-        assert_eq!(deserialized.api_key, Some("${ANTHROPIC_API_KEY}".to_string()));
+        assert_eq!(
+            deserialized.api_key,
+            Some("${ANTHROPIC_API_KEY}".to_string())
+        );
         assert!(deserialized.api_key_fallback);
         assert_eq!(deserialized.fallback_on_errors, vec![429, 401]);
     }
@@ -456,9 +468,9 @@ mod tests {
             endpoint = "https://api.anthropic.com"
             models = ["claude-3-5-sonnet"]
         "#;
-        
+
         let provider_config: ProviderConfig = toml::from_str(minimal_config).unwrap();
-        
+
         // Test defaults
         assert_eq!(provider_config.api_key, None);
         assert!(!provider_config.api_key_fallback);
@@ -470,35 +482,41 @@ mod tests {
     #[test]
     fn test_routing_config_serialization() {
         let mut models = FxHashMap::default();
-        models.insert("haiku".to_string(), ModelRoute::Single("openai/gpt-4o-mini".to_string()));
-        models.insert("best".to_string(), ModelRoute::Multiple(vec![
-            "openai/gpt-4o".to_string(),
-            "anthropic/claude-3-5-sonnet".to_string(),
-        ]));
+        models.insert(
+            "haiku".to_string(),
+            ModelRoute::Single("openai/gpt-4o-mini".to_string()),
+        );
+        models.insert(
+            "best".to_string(),
+            ModelRoute::Multiple(vec![
+                "openai/gpt-4o".to_string(),
+                "anthropic/claude-3-5-sonnet".to_string(),
+            ]),
+        );
 
-        let routing_config = RoutingConfig {
-            models,
-        };
+        let routing_config = RoutingConfig { models };
 
         // Test serialization
         let toml_string = toml::to_string(&routing_config).unwrap();
         assert!(toml_string.contains("haiku = \"openai/gpt-4o-mini\""));
-        assert!(toml_string.contains("best = [\"openai/gpt-4o\", \"anthropic/claude-3-5-sonnet\"]"));
+        assert!(
+            toml_string.contains("best = [\"openai/gpt-4o\", \"anthropic/claude-3-5-sonnet\"]")
+        );
 
-        // Test deserialization 
+        // Test deserialization
         let deserialized: RoutingConfig = toml::from_str(&toml_string).unwrap();
         assert_eq!(deserialized.models.len(), 2);
-        
+
         match deserialized.models.get("haiku").unwrap() {
             ModelRoute::Single(model) => assert_eq!(model, "openai/gpt-4o-mini"),
             _ => panic!("Should be Single variant"),
         }
-        
+
         match deserialized.models.get("best").unwrap() {
             ModelRoute::Multiple(models) => {
                 assert_eq!(models.len(), 2);
                 assert_eq!(models[0], "openai/gpt-4o");
-            },
+            }
             _ => panic!("Should be Multiple variant"),
         }
     }
@@ -512,15 +530,18 @@ mod tests {
 
         // Create config with interpolation
         let mut providers = FxHashMap::default();
-        providers.insert("anthropic".to_string(), ProviderConfig {
-            r#type: "anthropic".to_string(),
-            endpoint: "https://api.anthropic.com".to_string(), 
-            auth: AuthConfig::default(),
-            retry: RetryConfig::default(),
-            api_key: Some("${TEST_ANTHROPIC_KEY}".to_string()),
-            api_key_fallback: true,
-            fallback_on_errors: vec![429],
-        });
+        providers.insert(
+            "anthropic".to_string(),
+            ProviderConfig {
+                r#type: "anthropic".to_string(),
+                endpoint: "https://api.anthropic.com".to_string(),
+                auth: AuthConfig::default(),
+                retry: RetryConfig::default(),
+                api_key: Some("${TEST_ANTHROPIC_KEY}".to_string()),
+                api_key_fallback: true,
+                fallback_on_errors: vec![429],
+            },
+        );
 
         let mut config = Config {
             server: ServerConfig::default(),
@@ -533,7 +554,7 @@ mod tests {
 
         // Test interpolation
         config.interpolate_api_keys();
-        
+
         let anthropic_config = config.providers.get("anthropic").unwrap();
         assert_eq!(anthropic_config.api_key, Some("sk-ant-test123".to_string()));
 
@@ -547,7 +568,7 @@ mod tests {
     fn test_config_loading_creates_default_on_missing() {
         // This test would require filesystem access, so we test the logic
         let default_config = Config::default();
-        
+
         // Verify default structure
         assert!(default_config.providers.is_empty());
         assert!(default_config.routing.models.is_empty());
@@ -557,7 +578,7 @@ mod tests {
     #[test]
     fn test_retry_config_defaults() {
         let default_retry = RetryConfig::default();
-        
+
         assert_eq!(default_retry.max_retries, 3);
         assert_eq!(default_retry.initial_interval_ms, 1000);
         assert_eq!(default_retry.max_interval_ms, 30000);
@@ -585,7 +606,7 @@ mod tests {
         // Test valid token
         let valid_config = AuthConfig {
             oauth_access_token: Some("token".to_string()),
-            oauth_refresh_token: Some("refresh".to_string()), 
+            oauth_refresh_token: Some("refresh".to_string()),
             oauth_expires: Some(now + 3_600_000), // 1 hour from now
             project_id: None,
         };

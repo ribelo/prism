@@ -64,22 +64,22 @@ impl AuthProvider for AuthConfig {
 /// Initialize authentication cache by checking OAuth tokens once at startup
 pub async fn initialize_auth_cache() -> Result<AuthCache> {
     use tracing::info;
-    
+
     info!("Checking OAuth token availability...");
-    
+
     let cached_at = SystemTime::now();
-    
+
     // Check Anthropic tokens - fail startup if expired
     let anthropic_method = determine_anthropic_auth_method()?;
-    
+
     // Check Gemini tokens - fail startup if expired
     let gemini_method = determine_gemini_auth_method().await?;
-    
-    // Check OpenAI tokens - don't fail startup if unavailable 
+
+    // Check OpenAI tokens - don't fail startup if unavailable
     let openai_method = determine_openai_auth_method().await?;
-    
+
     info!("Authentication methods cached at startup");
-    
+
     Ok(AuthCache {
         anthropic_method,
         gemini_method,
@@ -93,16 +93,19 @@ fn determine_anthropic_auth_method() -> Result<AuthMethod> {
     use crate::auth::anthropic::AnthropicOAuth;
     use crate::auth::common::analyze_token_source;
     use tracing::info;
-    
+
     // Try to load Claude CLI tokens
     let claude_cli_result = AnthropicOAuth::try_claude_code_credentials();
-    
+
     if let Ok(claude_config) = claude_cli_result {
         let claude_info = analyze_token_source("Claude CLI", &claude_config);
-        
+
         if !claude_info.is_expired {
-            info!("Found valid Claude CLI OAuth tokens ({})", claude_info.age_description);
-            
+            info!(
+                "Found valid Claude CLI OAuth tokens ({})",
+                claude_info.age_description
+            );
+
             if let Some(token) = claude_config.oauth_access_token {
                 return Ok(AuthMethod::OAuth {
                     source: "Claude CLI".to_string(),
@@ -121,13 +124,14 @@ fn determine_anthropic_auth_method() -> Result<AuthMethod> {
                  To fix this issue:\n\
                    1. Run: claude auth refresh    (refresh Claude CLI tokens)\n\
                    2. Run: setu auth anthropic   (get fresh setu tokens)\n\n\
-                 Setu will automatically use whichever tokens are newer.".to_string(),
+                 Setu will automatically use whichever tokens are newer."
+                    .to_string(),
             ));
         }
     } else {
         info!("No Claude CLI OAuth tokens found");
     }
-    
+
     // No OAuth tokens found anywhere - this is an error for OAuth providers
     Err(SetuError::Other(
         "No Anthropic OAuth tokens found!\n\n\
@@ -137,7 +141,8 @@ fn determine_anthropic_auth_method() -> Result<AuthMethod> {
          To fix this issue:\n\
            1. Run: claude auth refresh    (if Claude CLI is installed)\n\
            2. Run: setu auth anthropic   (get fresh setu tokens)\n\n\
-         Setu will automatically use whichever tokens are newer.".to_string(),
+         Setu will automatically use whichever tokens are newer."
+            .to_string(),
     ))
 }
 
@@ -145,14 +150,14 @@ fn determine_anthropic_auth_method() -> Result<AuthMethod> {
 async fn determine_gemini_auth_method() -> Result<AuthMethod> {
     use crate::auth::google::GoogleOAuth;
     use tracing::info;
-    
+
     // Try to load Gemini CLI tokens
     let gemini_cli_result = GoogleOAuth::try_gemini_cli_credentials().await;
-    
+
     if let Ok(gemini_config) = gemini_cli_result {
         // Tokens are valid and not expired
         info!("Found valid Gemini CLI OAuth tokens");
-        
+
         if let Some(token) = gemini_config.oauth_access_token {
             return Ok(AuthMethod::OAuth {
                 source: "Gemini CLI".to_string(),
@@ -175,14 +180,15 @@ async fn determine_gemini_auth_method() -> Result<AuthMethod> {
                      To fix this issue:\n\
                        1. Try: gemini -p \"test\"      (may trigger automatic refresh)\n\
                        2. Run: setu auth google      (copy CLI tokens to setu config)\n\n\
-                     If Gemini CLI refresh fails, you may need to re-authenticate with Google.".to_string(),
+                     If Gemini CLI refresh fails, you may need to re-authenticate with Google."
+                        .to_string(),
                 ));
             } else {
                 info!("No Gemini CLI OAuth tokens found");
             }
         }
     }
-    
+
     // No OAuth tokens found anywhere - this is an error for OAuth providers
     Err(SetuError::Other(
         "No Gemini OAuth tokens found!\n\n\
@@ -192,7 +198,8 @@ async fn determine_gemini_auth_method() -> Result<AuthMethod> {
          To fix this issue:\n\
            1. Try: gemini -p \"test\"      (may trigger authentication)\n\
            2. Run: setu auth google      (set up OAuth tokens)\n\n\
-         If Gemini CLI is not installed, you may need to set up Google OAuth.".to_string(),
+         If Gemini CLI is not installed, you may need to set up Google OAuth."
+            .to_string(),
     ))
 }
 
@@ -200,14 +207,14 @@ async fn determine_gemini_auth_method() -> Result<AuthMethod> {
 async fn determine_openai_auth_method() -> Result<AuthMethod> {
     use crate::auth::openai::OpenAIOAuth;
     use tracing::info;
-    
+
     // Try to load codex CLI tokens
     let codex_cli_result = OpenAIOAuth::try_codex_cli_credentials().await;
-    
+
     if let Ok(openai_config) = codex_cli_result {
         // Tokens are valid and not expired
         info!("Found valid codex CLI OAuth tokens");
-        
+
         if let Some(token) = openai_config.oauth_access_token {
             return Ok(AuthMethod::OAuth {
                 source: "codex CLI".to_string(),
@@ -230,7 +237,7 @@ async fn determine_openai_auth_method() -> Result<AuthMethod> {
             }
         }
     }
-    
+
     // No OAuth tokens found - OpenAI is simply unavailable (not an error)
     Ok(AuthMethod::Unavailable {
         reason: "No OAuth tokens found".to_string(),

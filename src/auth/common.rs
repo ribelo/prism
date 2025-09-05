@@ -60,7 +60,7 @@ pub fn analyze_token_source(source_name: &str, auth_config: &AuthConfig) -> Toke
         .as_millis() as u64;
 
     let has_tokens = auth_config.oauth_access_token.is_some();
-    
+
     if !has_tokens {
         return TokenInfo {
             source: source_name.to_string(),
@@ -73,7 +73,7 @@ pub fn analyze_token_source(source_name: &str, auth_config: &AuthConfig) -> Toke
 
     let expires_at = auth_config.oauth_expires.unwrap_or(0);
     let is_expired = expires_at <= now;
-    
+
     let age_description = if expires_at == 0 {
         "unknown expiry".to_string()
     } else if is_expired {
@@ -106,19 +106,27 @@ pub fn analyze_token_source(source_name: &str, auth_config: &AuthConfig) -> Toke
 /// Check if OAuth tokens exist anywhere (even if expired) - indicates user has subscription
 pub async fn oauth_tokens_exist_anywhere() -> bool {
     // Check Claude CLI tokens
-    let claude_exists = crate::auth::anthropic::AnthropicOAuth::try_claude_code_credentials().is_ok();
-    
-    // Check Gemini CLI tokens  
-    let gemini_exists = crate::auth::google::GoogleOAuth::try_gemini_cli_credentials().await.is_ok();
-    
+    let claude_exists =
+        crate::auth::anthropic::AnthropicOAuth::try_claude_code_credentials().is_ok();
+
+    // Check Gemini CLI tokens
+    let gemini_exists = crate::auth::google::GoogleOAuth::try_gemini_cli_credentials()
+        .await
+        .is_ok();
+
     // Check OpenAI/codex CLI tokens
-    let openai_exists = crate::auth::openai::OpenAIOAuth::try_codex_cli_credentials().await.is_ok();
-    
+    let openai_exists = crate::auth::openai::OpenAIOAuth::try_codex_cli_credentials()
+        .await
+        .is_ok();
+
     claude_exists || gemini_exists || openai_exists
 }
 
 /// Choose the best token source based on availability and freshness
-pub fn choose_best_token_source(primary_info: &TokenInfo, secondary_info: &TokenInfo) -> TokenDecision {
+pub fn choose_best_token_source(
+    primary_info: &TokenInfo,
+    secondary_info: &TokenInfo,
+) -> TokenDecision {
     // Neither available
     if !primary_info.available && !secondary_info.available {
         return TokenDecision {
@@ -150,14 +158,22 @@ pub fn choose_best_token_source(primary_info: &TokenInfo, secondary_info: &Token
         if primary_expires > secondary_expires {
             return TokenDecision {
                 source: primary_info.source.clone(),
-                rationale: format!("Both expired, {} tokens less stale ({} vs {})", 
-                                   primary_info.source, primary_info.age_description, secondary_info.age_description),
+                rationale: format!(
+                    "Both expired, {} tokens less stale ({} vs {})",
+                    primary_info.source,
+                    primary_info.age_description,
+                    secondary_info.age_description
+                ),
             };
         } else {
             return TokenDecision {
                 source: secondary_info.source.clone(),
-                rationale: format!("Both expired, {} tokens less stale ({} vs {})", 
-                                   secondary_info.source, secondary_info.age_description, primary_info.age_description),
+                rationale: format!(
+                    "Both expired, {} tokens less stale ({} vs {})",
+                    secondary_info.source,
+                    secondary_info.age_description,
+                    primary_info.age_description
+                ),
             };
         }
     }
@@ -166,17 +182,25 @@ pub fn choose_best_token_source(primary_info: &TokenInfo, secondary_info: &Token
     if primary_info.is_expired && !secondary_info.is_expired {
         return TokenDecision {
             source: secondary_info.source.clone(),
-            rationale: format!("{} valid ({}), {} expired ({})", 
-                               secondary_info.source, secondary_info.age_description, 
-                               primary_info.source, primary_info.age_description),
+            rationale: format!(
+                "{} valid ({}), {} expired ({})",
+                secondary_info.source,
+                secondary_info.age_description,
+                primary_info.source,
+                primary_info.age_description
+            ),
         };
     }
     if !primary_info.is_expired && secondary_info.is_expired {
         return TokenDecision {
             source: primary_info.source.clone(),
-            rationale: format!("{} valid ({}), {} expired ({})", 
-                               primary_info.source, primary_info.age_description, 
-                               secondary_info.source, secondary_info.age_description),
+            rationale: format!(
+                "{} valid ({}), {} expired ({})",
+                primary_info.source,
+                primary_info.age_description,
+                secondary_info.source,
+                secondary_info.age_description
+            ),
         };
     }
 
@@ -184,14 +208,18 @@ pub fn choose_best_token_source(primary_info: &TokenInfo, secondary_info: &Token
     if secondary_expires > primary_expires {
         TokenDecision {
             source: secondary_info.source.clone(),
-            rationale: format!("{} newer ({} vs {})", 
-                               secondary_info.source, secondary_info.age_description, primary_info.age_description),
+            rationale: format!(
+                "{} newer ({} vs {})",
+                secondary_info.source, secondary_info.age_description, primary_info.age_description
+            ),
         }
     } else {
         TokenDecision {
             source: primary_info.source.clone(),
-            rationale: format!("{} newer ({} vs {})", 
-                               primary_info.source, primary_info.age_description, secondary_info.age_description),
+            rationale: format!(
+                "{} newer ({} vs {})",
+                primary_info.source, primary_info.age_description, secondary_info.age_description
+            ),
         }
     }
 }
@@ -202,7 +230,11 @@ mod tests {
 
     fn create_auth_config(access_token: bool, expires: Option<u64>) -> AuthConfig {
         AuthConfig {
-            oauth_access_token: if access_token { Some("token".to_string()) } else { None },
+            oauth_access_token: if access_token {
+                Some("token".to_string())
+            } else {
+                None
+            },
             oauth_refresh_token: None,
             oauth_expires: expires,
             project_id: None,
@@ -213,7 +245,7 @@ mod tests {
     fn test_analyze_token_source_no_tokens() {
         let config = create_auth_config(false, None);
         let info = analyze_token_source("test", &config);
-        
+
         assert_eq!(info.source, "test");
         assert!(!info.available);
         assert!(info.is_expired);
@@ -225,11 +257,12 @@ mod tests {
         let future_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_millis() as u64 + 3600000; // 1 hour from now
+            .as_millis() as u64
+            + 3600000; // 1 hour from now
 
         let config = create_auth_config(true, Some(future_time));
         let info = analyze_token_source("test", &config);
-        
+
         assert_eq!(info.source, "test");
         assert!(info.available);
         assert!(!info.is_expired);
@@ -246,7 +279,7 @@ mod tests {
             age_description: "no tokens".to_string(),
         };
         let secondary = primary.clone();
-        
+
         let decision = choose_best_token_source(&primary, &secondary);
         assert_eq!(decision.source, "none");
     }
@@ -267,7 +300,7 @@ mod tests {
             is_expired: true,
             age_description: "no tokens".to_string(),
         };
-        
+
         let decision = choose_best_token_source(&primary, &secondary);
         assert_eq!(decision.source, "primary");
     }
@@ -288,7 +321,7 @@ mod tests {
             is_expired: false,
             age_description: "expires in 60m".to_string(),
         };
-        
+
         let decision = choose_best_token_source(&primary, &secondary);
         assert_eq!(decision.source, "secondary");
         assert!(decision.rationale.contains("newer"));

@@ -46,8 +46,7 @@ impl OpenAIOAuth {
     fn load_codex_auth() -> Result<CodexAuthJson> {
         let home = std::env::var("HOME")
             .map_err(|_| SetuError::Other("HOME environment variable not set".to_string()))?;
-        let codex_home = std::env::var("CODEX_HOME")
-            .unwrap_or_else(|_| format!("{}/.codex", home));
+        let codex_home = std::env::var("CODEX_HOME").unwrap_or_else(|_| format!("{}/.codex", home));
         let auth_path = PathBuf::from(codex_home).join("auth.json");
 
         let contents = fs::read_to_string(&auth_path)?;
@@ -59,8 +58,7 @@ impl OpenAIOAuth {
     fn save_codex_auth(auth_json: &CodexAuthJson) -> Result<()> {
         let home = std::env::var("HOME")
             .map_err(|_| SetuError::Other("HOME environment variable not set".to_string()))?;
-        let codex_home = std::env::var("CODEX_HOME")
-            .unwrap_or_else(|_| format!("{}/.codex", home));
+        let codex_home = std::env::var("CODEX_HOME").unwrap_or_else(|_| format!("{}/.codex", home));
         let auth_path = PathBuf::from(codex_home).join("auth.json");
 
         let contents = serde_json::to_string_pretty(auth_json)?;
@@ -70,7 +68,8 @@ impl OpenAIOAuth {
 
     /// Check if token needs refresh (28 days old)
     fn needs_refresh(auth_json: &CodexAuthJson) -> bool {
-        auth_json.last_refresh
+        auth_json
+            .last_refresh
             .as_ref()
             .and_then(|lr| chrono::DateTime::parse_from_rfc3339(lr).ok())
             .map(|lr| {
@@ -100,8 +99,14 @@ impl OpenAIOAuth {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(SetuError::Other(format!("Token refresh failed with status {}: {}", status, error_text)));
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(SetuError::Other(format!(
+                "Token refresh failed with status {}: {}",
+                status, error_text
+            )));
         }
 
         let refresh_response: TokenRefreshResponse = response.json().await?;
@@ -124,10 +129,12 @@ impl OpenAIOAuth {
                     let updated_tokens = CodexTokenData {
                         id_token: refresh_response.id_token,
                         access_token: refresh_response.access_token.unwrap_or(tokens.access_token),
-                        refresh_token: refresh_response.refresh_token.unwrap_or(tokens.refresh_token),
+                        refresh_token: refresh_response
+                            .refresh_token
+                            .unwrap_or(tokens.refresh_token),
                         account_id: tokens.account_id,
                     };
-                    
+
                     auth_json.tokens = Some(updated_tokens);
                     auth_json.last_refresh = Some(chrono::Utc::now().to_rfc3339());
                     Self::save_codex_auth(&auth_json)?;
@@ -158,7 +165,8 @@ impl OpenAIOAuth {
     /// Validate and refresh OpenAI OAuth config, choosing the best available tokens
     pub async fn validate_auth_config(auth_config: &mut AuthConfig) -> Result<()> {
         let setu_token_info = analyze_token_source("setu config", auth_config);
-        let codex_token_info = Self::try_codex_cli_credentials().await
+        let codex_token_info = Self::try_codex_cli_credentials()
+            .await
             .map(|config| analyze_token_source("codex CLI", &config))
             .unwrap_or_else(|e| {
                 tracing::debug!("Codex CLI credentials unavailable: {}", e);
@@ -179,13 +187,15 @@ impl OpenAIOAuth {
                 // Current config is best - validate it's not expired
                 if setu_token_info.is_expired {
                     return Err(SetuError::Other(
-                        "Setu OpenAI OAuth token has expired and no refresh token is available".to_string()
+                        "Setu OpenAI OAuth token has expired and no refresh token is available"
+                            .to_string(),
                     ));
                 }
             }
             _ => {
                 return Err(SetuError::Other(
-                    "No valid OpenAI OAuth tokens available from setu config or codex CLI".to_string()
+                    "No valid OpenAI OAuth tokens available from setu config or codex CLI"
+                        .to_string(),
                 ));
             }
         }
@@ -198,7 +208,8 @@ impl OpenAIOAuth {
         // Validate and potentially refresh the config
         Self::validate_auth_config(auth_config).await?;
 
-        auth_config.oauth_access_token
+        auth_config
+            .oauth_access_token
             .clone()
             .ok_or_else(|| SetuError::Other("No OpenAI OAuth access token available".to_string()))
     }

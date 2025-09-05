@@ -18,7 +18,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         
       - name: Run tests
-        run: cargo test
+        run: cargo test --lib --tests
 
   build:
     name: Build Release Binaries

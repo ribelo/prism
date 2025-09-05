@@ -27,7 +27,7 @@ impl NameBasedRouter {
         let (model_part, query_params) = if let Some(query_pos) = model_name.find('?') {
             let model = &model_name[..query_pos];
             let query = &model_name[query_pos + 1..];
-            
+
             // Parse query string into HashMap
             let params = if query.is_empty() {
                 None
@@ -45,7 +45,7 @@ impl NameBasedRouter {
                 }
                 Some(map)
             };
-            
+
             (model, params)
         } else {
             (model_name, None)
@@ -57,13 +57,14 @@ impl NameBasedRouter {
             let model_suffix = &model_part[slash_pos + 1..];
 
             // Parse provider preference (e.g., ":fireworks", ":nitro", ":floor")
-            let (actual_model, provider_preference) = if let Some(colon_pos) = model_suffix.rfind(':') {
-                let model = &model_suffix[..colon_pos];
-                let preference = &model_suffix[colon_pos + 1..];
-                (model.to_string(), Some(preference.to_string()))
-            } else {
-                (model_suffix.to_string(), None)
-            };
+            let (actual_model, provider_preference) =
+                if let Some(colon_pos) = model_suffix.rfind(':') {
+                    let model = &model_suffix[..colon_pos];
+                    let preference = &model_suffix[colon_pos + 1..];
+                    (model.to_string(), Some(preference.to_string()))
+                } else {
+                    (model_suffix.to_string(), None)
+                };
 
             return Ok(RoutingDecision {
                 provider: provider.to_string(),
@@ -100,7 +101,6 @@ impl NameBasedRouter {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -225,7 +225,7 @@ mod tests {
         assert_eq!(decision.model, "o1-preview");
         assert_eq!(decision.provider_preference, None);
 
-        // Test o3 series - should route to OpenRouter  
+        // Test o3 series - should route to OpenRouter
         let decision = router.route_model("o3-mini").unwrap();
         assert_eq!(decision.provider, "openrouter");
         assert_eq!(decision.model, "o3-mini");
@@ -257,17 +257,24 @@ mod tests {
         let router = NameBasedRouter::new(config);
 
         // Test specific provider routing
-        let decision = router.route_model("openrouter/z-ai/glm-4.5:fireworks").unwrap();
+        let decision = router
+            .route_model("openrouter/z-ai/glm-4.5:fireworks")
+            .unwrap();
         assert_eq!(decision.provider, "openrouter");
         assert_eq!(decision.model, "z-ai/glm-4.5");
         assert_eq!(decision.original_model, "openrouter/z-ai/glm-4.5:fireworks");
         assert_eq!(decision.provider_preference, Some("fireworks".to_string()));
 
         // Test nitro preference (high throughput)
-        let decision = router.route_model("openrouter/meta-llama/llama-3.1-8b:nitro").unwrap();
+        let decision = router
+            .route_model("openrouter/meta-llama/llama-3.1-8b:nitro")
+            .unwrap();
         assert_eq!(decision.provider, "openrouter");
         assert_eq!(decision.model, "meta-llama/llama-3.1-8b");
-        assert_eq!(decision.original_model, "openrouter/meta-llama/llama-3.1-8b:nitro");
+        assert_eq!(
+            decision.original_model,
+            "openrouter/meta-llama/llama-3.1-8b:nitro"
+        );
         assert_eq!(decision.provider_preference, Some("nitro".to_string()));
 
         // Test floor preference (lowest price)
@@ -278,10 +285,15 @@ mod tests {
         assert_eq!(decision.provider_preference, Some("floor".to_string()));
 
         // Test together provider
-        let decision = router.route_model("openrouter/mistralai/mixtral-8x7b:together").unwrap();
+        let decision = router
+            .route_model("openrouter/mistralai/mixtral-8x7b:together")
+            .unwrap();
         assert_eq!(decision.provider, "openrouter");
         assert_eq!(decision.model, "mistralai/mixtral-8x7b");
-        assert_eq!(decision.original_model, "openrouter/mistralai/mixtral-8x7b:together");
+        assert_eq!(
+            decision.original_model,
+            "openrouter/mistralai/mixtral-8x7b:together"
+        );
         assert_eq!(decision.provider_preference, Some("together".to_string()));
     }
 
@@ -291,21 +303,33 @@ mod tests {
         let router = NameBasedRouter::new(config);
 
         // Test model names with multiple slashes and provider preference
-        let decision = router.route_model("openrouter/company/team/model-v2:groq").unwrap();
+        let decision = router
+            .route_model("openrouter/company/team/model-v2:groq")
+            .unwrap();
         assert_eq!(decision.provider, "openrouter");
         assert_eq!(decision.model, "company/team/model-v2");
-        assert_eq!(decision.original_model, "openrouter/company/team/model-v2:groq");
+        assert_eq!(
+            decision.original_model,
+            "openrouter/company/team/model-v2:groq"
+        );
         assert_eq!(decision.provider_preference, Some("groq".to_string()));
 
         // Test model with colons in the actual model name (only last colon should be provider)
-        let decision = router.route_model("openrouter/model:with:colons:deepinfra").unwrap();
+        let decision = router
+            .route_model("openrouter/model:with:colons:deepinfra")
+            .unwrap();
         assert_eq!(decision.provider, "openrouter");
         assert_eq!(decision.model, "model:with:colons");
-        assert_eq!(decision.original_model, "openrouter/model:with:colons:deepinfra");
+        assert_eq!(
+            decision.original_model,
+            "openrouter/model:with:colons:deepinfra"
+        );
         assert_eq!(decision.provider_preference, Some("deepinfra".to_string()));
 
         // Test no provider preference (should still work)
-        let decision = router.route_model("openrouter/complex/path/to/model").unwrap();
+        let decision = router
+            .route_model("openrouter/complex/path/to/model")
+            .unwrap();
         assert_eq!(decision.provider, "openrouter");
         assert_eq!(decision.model, "complex/path/to/model");
         assert_eq!(decision.original_model, "openrouter/complex/path/to/model");
@@ -318,10 +342,15 @@ mod tests {
         let router = NameBasedRouter::new(config);
 
         // Test Anthropic provider with preference (even though it might not be used)
-        let decision = router.route_model("anthropic/claude-3.5-sonnet:anthropic").unwrap();
+        let decision = router
+            .route_model("anthropic/claude-3.5-sonnet:anthropic")
+            .unwrap();
         assert_eq!(decision.provider, "anthropic");
         assert_eq!(decision.model, "claude-3.5-sonnet");
-        assert_eq!(decision.original_model, "anthropic/claude-3.5-sonnet:anthropic");
+        assert_eq!(
+            decision.original_model,
+            "anthropic/claude-3.5-sonnet:anthropic"
+        );
         assert_eq!(decision.provider_preference, Some("anthropic".to_string()));
     }
 
@@ -353,16 +382,23 @@ mod tests {
         let router = NameBasedRouter::new(config);
 
         // Test basic query string parsing
-        let decision = router.route_model("anthropic/claude-3.5-sonnet?think=1000").unwrap();
+        let decision = router
+            .route_model("anthropic/claude-3.5-sonnet?think=1000")
+            .unwrap();
         assert_eq!(decision.provider, "anthropic");
         assert_eq!(decision.model, "claude-3.5-sonnet");
-        assert_eq!(decision.original_model, "anthropic/claude-3.5-sonnet?think=1000");
+        assert_eq!(
+            decision.original_model,
+            "anthropic/claude-3.5-sonnet?think=1000"
+        );
         assert_eq!(decision.provider_preference, None);
         let params = decision.query_params.unwrap();
         assert_eq!(params.get("think"), Some(&"1000".to_string()));
 
         // Test multiple query parameters
-        let decision = router.route_model("openrouter/z-ai/glm-4.5:fireworks?think=2000&effort=high&reasoning=true").unwrap();
+        let decision = router
+            .route_model("openrouter/z-ai/glm-4.5:fireworks?think=2000&effort=high&reasoning=true")
+            .unwrap();
         assert_eq!(decision.provider, "openrouter");
         assert_eq!(decision.model, "z-ai/glm-4.5");
         assert_eq!(decision.provider_preference, Some("fireworks".to_string()));
@@ -372,7 +408,9 @@ mod tests {
         assert_eq!(params.get("reasoning"), Some(&"true".to_string()));
 
         // Test query parameter without value
-        let decision = router.route_model("gemini/gemini-2.0-flash-thinking-exp?thoughts").unwrap();
+        let decision = router
+            .route_model("gemini/gemini-2.0-flash-thinking-exp?thoughts")
+            .unwrap();
         assert_eq!(decision.provider, "gemini");
         assert_eq!(decision.model, "gemini-2.0-flash-thinking-exp");
         let params = decision.query_params.unwrap();
@@ -391,7 +429,9 @@ mod tests {
         let router = NameBasedRouter::new(config);
 
         // Test complex model path with provider preference and query params
-        let decision = router.route_model("openrouter/company/team/model-v2:together?think=5000&thoughts=true").unwrap();
+        let decision = router
+            .route_model("openrouter/company/team/model-v2:together?think=5000&thoughts=true")
+            .unwrap();
         assert_eq!(decision.provider, "openrouter");
         assert_eq!(decision.model, "company/team/model-v2");
         assert_eq!(decision.provider_preference, Some("together".to_string()));
@@ -400,7 +440,9 @@ mod tests {
         assert_eq!(params.get("thoughts"), Some(&"true".to_string()));
 
         // Test model with colons in name plus query params
-        let decision = router.route_model("openrouter/model:with:colons:deepinfra?effort=medium").unwrap();
+        let decision = router
+            .route_model("openrouter/model:with:colons:deepinfra?effort=medium")
+            .unwrap();
         assert_eq!(decision.provider, "openrouter");
         assert_eq!(decision.model, "model:with:colons");
         assert_eq!(decision.provider_preference, Some("deepinfra".to_string()));
