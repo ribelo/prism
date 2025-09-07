@@ -2,6 +2,7 @@ use axum::extract::{Path, Request, State};
 use axum::http::StatusCode;
 use axum::response::Json;
 use serde_json::Value;
+use std::sync::OnceLock;
 
 use crate::router::model_router::ModelRouter;
 use regex::Regex;
@@ -133,48 +134,80 @@ pub async fn anthropic_messages(
         }
     }
     if let Some(in_str) = crate::server::error_handling::prepare_request_log(&anthropic_request) {
-        tracing::debug!(target: "setu::incoming", "Incoming Anthropic messages request: {}", in_str);
+        tracing::debug!(target: "prism::incoming", "Incoming Anthropic messages request: {}", in_str);
+    }
+
+    // Static regex for model directives (compiled once)
+    static RE_MODEL_DIRECTIVE: OnceLock<Regex> = OnceLock::new();
+
+    fn directive_re() -> &'static Regex {
+        RE_MODEL_DIRECTIVE.get_or_init(|| {
+            Regex::new(r"^<!--\s*([^\s>]+/[^\s>:]+(?::[^\s>]+)?(?:\?[^\s>]+)?)\s*-->$")
+                .expect("valid directive regex")
+        })
+    }
+
+    fn parse_model_directive(system_text: &str) -> Option<String> {
+        // First non-empty line only (allow BOM)
+        let line = system_text.lines().find(|l| !l.trim().is_empty())?;
+        let trimmed = line.trim_start_matches('\u{feff}').trim();
+        let result = directive_re()
+            .captures(trimmed)
+            .map(|caps| caps.get(1).unwrap().as_str().to_string());
+        
+        // Debug logging when no directive found
+        if result.is_none() {
+            tracing::debug!(target: "prism::routing", "No model directive found in first non-empty line: '{}'", trimmed);
+        } else {
+            tracing::debug!(target: "prism::routing", "Found model directive: {:?}", result);
+        }
+        
+        result
+    }
+
+    fn first_system_text(v: &serde_json::Value) -> Option<String> {
+        match v {
+            serde_json::Value::String(s) => Some(s.clone()),
+            serde_json::Value::Array(arr) => {
+                // Respect array order; pick the first text field
+                for item in arr {
+                    if let serde_json::Value::Object(map) = item {
+                        if let Some(serde_json::Value::String(s)) = map.get("text") {
+                            if !s.trim().is_empty() {
+                                return Some(s.clone());
+                            }
+                        }
+                    } else if let serde_json::Value::String(s) = item {
+                        // Some clients might send plain strings in the array
+                        if !s.trim().is_empty() {
+                            return Some(s.clone());
+                        }
+                    }
+                }
+                None
+            }
+            serde_json::Value::Object(map) => {
+                // Only the "text" field, never "type" or anything else
+                if let Some(serde_json::Value::String(s)) = map.get("text") {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
 
     // Derive optional model override from a directive at the top of system prompt
     fn extract_model_override_from_system(req: &anthropic_ox::ChatRequest) -> Option<String> {
         let val = serde_json::to_value(req).ok()?;
         let system_val = val.get("system")?;
-        // Build owned system text
-        let system_text_owned: String = if let Some(s) = system_val.as_str() {
-            s.to_string()
-        } else {
-            // If system is structured, collect strings and join
-            let mut parts = Vec::new();
-            fn collect_strings(v: &serde_json::Value, out: &mut Vec<String>) {
-                match v {
-                    serde_json::Value::String(s) => out.push(s.clone()),
-                    serde_json::Value::Array(arr) => for i in arr { collect_strings(i, out); },
-                    serde_json::Value::Object(map) => for i in map.values() { collect_strings(i, out); },
-                    _ => {}
-                }
-            }
-            collect_strings(system_val, &mut parts);
-            parts.join("\n")
-        };
-        let system_text = system_text_owned.as_str();
 
-        // Consider only the first few lines to avoid false positives
-        let mut candidate: Option<String> = None;
-        for line in system_text.lines().take(20) {
-            let trimmed = line.trim();
-            if trimmed.is_empty() { continue; }
-            // Skip Claude Code preamble tokens that may appear before the agent body
-            if trimmed == "ephemeral" || trimmed == "text" || trimmed.starts_with("You are Claude Code") {
-                continue;
-            }
-            // Check for directive comment as the first meaningful line
-            if let Some(caps) = Regex::new(r"^<!--\s*([^\s>]+/[^\s>:]+(?::[^\s>]+)?(?:\?[^\s>]+)?)\s*-->$").unwrap().captures(trimmed) {
-                candidate = Some(caps.get(1).unwrap().as_str().to_string());
-            }
-            break;
-        }
-        candidate
+        // Only use the first textual system block
+        let system_text_owned = first_system_text(system_val)?;
+
+        // First non-empty line only
+        parse_model_directive(&system_text_owned)
     }
 
     // Route based on model name (respect optional system directive)
