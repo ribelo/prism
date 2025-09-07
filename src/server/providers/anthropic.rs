@@ -37,8 +37,8 @@ pub async fn handle_direct_anthropic_request(
         );
     }
 
-    if let Some(req_str) = crate::server::error_handling::prepare_request_log(&anthropic_request) {
-        tracing::debug!(target: "setu::request", "Outgoing Anthropic request: {}", req_str);
+    if let Some(req_str) = crate::server::error_handling::prepare_anthropic_request_log(&anthropic_request) {
+        tracing::debug!(target: "setu::request", "Outgoing Anthropic request (detailed): {}", req_str);
     }
 
     // Ensure request model matches routed model for Anthropic provider

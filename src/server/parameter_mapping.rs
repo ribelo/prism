@@ -69,13 +69,12 @@ pub fn apply_openrouter_parameters(
     apply_param(&mut request.top_a, query_params, "top_a");
     apply_param(&mut request.top_logprobs, query_params, "top_logprobs");
 
-    // Reasoning flag
-    let reasoning_flag = query_params
-        .get("reasoning")
-        .and_then(|v| v.parse::<bool>().ok());
+    // Reasoning configuration
+    let reasoning_config = create_openrouter_reasoning_config(query_params);
+    let reasoning_flag = reasoning_config.as_ref().and_then(|c| c.enabled);
 
-    if let Some(reasoning) = reasoning_flag {
-        request.include_reasoning = Some(reasoning);
+    if let Some(config) = reasoning_config {
+        request.reasoning = Some(config);
     }
 
     (request, reasoning_flag)
@@ -86,14 +85,7 @@ pub fn apply_openrouter_provider_params(
     mut provider_prefs: openrouter_ox::provider_preference::ProviderPreferences,
     query_params: &HashMap<String, String>,
 ) -> openrouter_ox::provider_preference::ProviderPreferences {
-    // Effort mapping
-    if let Some(effort) = query_params.get("effort") {
-        provider_prefs.sort = match effort.as_str() {
-            "high" => Some(openrouter_ox::provider_preference::Sort::Throughput),
-            "low" => Some(openrouter_ox::provider_preference::Sort::Price),
-            _ => None,
-        };
-    }
+    // Note: effort parameter is now handled by reasoning config, not provider preferences
 
     // Direct sort parameter
     if let Some(sort) = query_params.get("sort") {
@@ -121,6 +113,36 @@ pub fn apply_openrouter_provider_params(
     }
 
     provider_prefs
+}
+
+/// Create OpenRouter reasoning config from query parameters
+pub fn create_openrouter_reasoning_config(
+    query_params: &HashMap<String, String>,
+) -> Option<openrouter_ox::ReasoningConfig> {
+    let enabled = query_params
+        .get("reasoning")
+        .and_then(|v| v.parse::<bool>().ok());
+    
+    let effort = query_params.get("effort").cloned();
+    
+    let max_tokens = query_params
+        .get("reasoning_max_tokens")
+        .and_then(|v| v.parse::<u32>().ok());
+    
+    let exclude = query_params
+        .get("reasoning_exclude")
+        .and_then(|v| v.parse::<bool>().ok());
+
+    if enabled.is_some() || effort.is_some() || max_tokens.is_some() || exclude.is_some() {
+        Some(openrouter_ox::ReasoningConfig {
+            enabled,
+            effort,
+            max_tokens,
+            exclude,
+        })
+    } else {
+        None
+    }
 }
 
 /// Create Gemini thinking config from query parameters
@@ -180,6 +202,7 @@ mod tests {
         params.insert("temperature".to_string(), "0.8".to_string());
         params.insert("seed".to_string(), "42".to_string());
         params.insert("reasoning".to_string(), "true".to_string());
+        params.insert("effort".to_string(), "high".to_string());
 
         let request = openrouter_ox::ChatRequest::new("gpt-4", vec![]);
         let (modified_request, reasoning_flag) = apply_openrouter_parameters(request, &params);
@@ -187,6 +210,14 @@ mod tests {
         assert_eq!(modified_request.temperature, Some(0.8));
         assert_eq!(modified_request.seed, Some(42));
         assert_eq!(reasoning_flag, Some(true));
+        
+        // Check reasoning config
+        assert!(modified_request.reasoning.is_some());
+        let reasoning = modified_request.reasoning.unwrap();
+        assert_eq!(reasoning.enabled, Some(true));
+        assert_eq!(reasoning.effort, Some("high".to_string()));
+        assert_eq!(reasoning.max_tokens, None);
+        assert_eq!(reasoning.exclude, None);
     }
 
     #[test]
@@ -204,9 +235,57 @@ mod tests {
     }
 
     #[test]
+    fn test_openrouter_reasoning_config() {
+        let mut params = HashMap::new();
+        params.insert("reasoning".to_string(), "true".to_string());
+        params.insert("effort".to_string(), "high".to_string());
+        params.insert("reasoning_max_tokens".to_string(), "2000".to_string());
+        params.insert("reasoning_exclude".to_string(), "false".to_string());
+
+        let config = create_openrouter_reasoning_config(&params);
+
+        assert!(config.is_some());
+        let config = config.unwrap();
+        assert_eq!(config.enabled, Some(true));
+        assert_eq!(config.effort, Some("high".to_string()));
+        assert_eq!(config.max_tokens, Some(2000));
+        assert_eq!(config.exclude, Some(false));
+    }
+
+    #[test]
+    fn test_openrouter_reasoning_config_minimal() {
+        let mut params = HashMap::new();
+        params.insert("reasoning".to_string(), "true".to_string());
+
+        let config = create_openrouter_reasoning_config(&params);
+
+        assert!(config.is_some());
+        let config = config.unwrap();
+        assert_eq!(config.enabled, Some(true));
+        assert_eq!(config.effort, None);
+        assert_eq!(config.max_tokens, None);
+        assert_eq!(config.exclude, None);
+    }
+
+    #[test]
+    fn test_openrouter_reasoning_config_effort_only() {
+        let mut params = HashMap::new();
+        params.insert("effort".to_string(), "medium".to_string());
+
+        let config = create_openrouter_reasoning_config(&params);
+
+        assert!(config.is_some());
+        let config = config.unwrap();
+        assert_eq!(config.enabled, None);
+        assert_eq!(config.effort, Some("medium".to_string()));
+        assert_eq!(config.max_tokens, None);
+        assert_eq!(config.exclude, None);
+    }
+
+    #[test]
     fn test_provider_preferences() {
         let mut params = HashMap::new();
-        params.insert("effort".to_string(), "high".to_string());
+        params.insert("sort".to_string(), "throughput".to_string());
         params.insert("quantization".to_string(), "int8".to_string());
 
         let prefs = openrouter_ox::provider_preference::ProviderPreferences {

@@ -91,7 +91,11 @@ impl NameBasedRouter {
         // Infer provider based on model name patterns
         if model_name.starts_with("claude") {
             Ok("anthropic".to_string())
-        } else if model_name.starts_with("gpt") || model_name.starts_with("o1-") {
+        } else if model_name == "gpt-5" || model_name.starts_with("gpt-5-") {
+            // GPT-5 models should go to OpenAI
+            Ok("openai".to_string())
+        } else if model_name.starts_with("gpt") || model_name.starts_with("o1-") || model_name.starts_with("o3") {
+            // Other GPT models and reasoning models can go to OpenRouter
             Ok("openrouter".to_string())
         } else if model_name.starts_with("gemini") {
             Ok("gemini".to_string())

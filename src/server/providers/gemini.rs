@@ -82,8 +82,8 @@ pub async fn handle_gemini_request_from_openai(
         });
     }
 
-    if let Some(req_str) = crate::server::error_handling::prepare_request_log(&gemini_request) {
-        tracing::debug!(target: "setu::request", "Outgoing Gemini (from OpenAI) request: {}", req_str);
+    if let Some(req_str) = crate::server::error_handling::prepare_gemini_request_log(&gemini_request) {
+        tracing::debug!(target: "setu::request", "Outgoing Gemini (from OpenAI) request (detailed): {}", req_str);
     }
 
     // Send request to Gemini
@@ -152,8 +152,8 @@ pub async fn handle_gemini_request(
         });
     }
 
-    if let Some(req_str) = crate::server::error_handling::prepare_request_log(&gemini_request) {
-        tracing::debug!(target: "setu::request", "Outgoing Gemini request: {}", req_str);
+    if let Some(req_str) = crate::server::error_handling::prepare_gemini_request_log(&gemini_request) {
+        tracing::debug!(target: "setu::request", "Outgoing Gemini request (detailed): {}", req_str);
     }
 
     // Send request to Gemini
@@ -239,8 +239,8 @@ pub async fn handle_openrouter_from_gemini(
         openrouter_request
     };
 
-    if let Some(req_str) = crate::server::error_handling::prepare_request_log(&final_request) {
-        tracing::debug!(target: "setu::request", "Outgoing OpenRouter (from Gemini) request: {}", req_str);
+    if let Some(req_str) = crate::server::error_handling::prepare_openrouter_request_log(&final_request) {
+        tracing::debug!(target: "setu::request", "Outgoing OpenRouter (from Gemini) request (detailed): {}", req_str);
     }
 
     // Send to OpenRouter
@@ -321,7 +321,7 @@ pub async fn handle_anthropic_from_gemini(
             }
         };
 
-    if let Some(req_str) = crate::server::error_handling::prepare_request_log(&anthropic_request) {
+    if let Some(req_str) = crate::server::error_handling::prepare_anthropic_request_log(&anthropic_request) {
         tracing::debug!(target: "setu::request", "Outgoing Anthropic (from Gemini) request: {}", req_str);
     }
 
@@ -387,7 +387,7 @@ pub async fn handle_direct_gemini_request(
         });
     }
 
-    if let Some(req_str) = crate::server::error_handling::prepare_request_log(&gemini_request) {
+    if let Some(req_str) = crate::server::error_handling::prepare_gemini_request_log(&gemini_request) {
         tracing::debug!(target: "setu::request", "Outgoing Gemini (direct) request: {}", req_str);
     }
 

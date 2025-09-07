@@ -94,10 +94,16 @@ fn collect_strings(v: &serde_json::Value, out: &mut Vec<String>) {
 }
 
 fn extract_system_text(val: &serde_json::Value) -> Option<String> {
-    // Prefer explicit system field
+    // Check for system field (Anthropic format)
     if let Some(system) = val.get("system") {
         let mut parts = Vec::new();
         collect_strings(system, &mut parts);
+        if !parts.is_empty() { return Some(parts.join("\n")); }
+    }
+    // Check for instructions field (OpenAI Responses API format)
+    if let Some(instructions) = val.get("instructions") {
+        let mut parts = Vec::new();
+        collect_strings(instructions, &mut parts);
         if !parts.is_empty() { return Some(parts.join("\n")); }
     }
     // Fallback: messages with role == system
@@ -126,8 +132,17 @@ fn summarize_request_value(val: &serde_json::Value, level: u8) -> serde_json::Va
     let has_tools = val.get("tools").is_some();
     let has_messages = val.get("messages").is_some();
 
+    // Check for both 'system' (Anthropic) and 'instructions' (OpenAI Responses API)
     let system_val = match level {
-        1 => Some(Value::String("[system]".into())),
+        1 => {
+            if val.get("system").is_some() {
+                Some(Value::String("[system]".into()))
+            } else if val.get("instructions").is_some() {
+                Some(Value::String("[instructions]".into()))
+            } else {
+                None
+            }
+        },
         2 | 3 => extract_system_text(val).map(Value::String),
         _ => None,
     };
@@ -140,13 +155,28 @@ fn summarize_request_value(val: &serde_json::Value, level: u8) -> serde_json::Va
         }
     } else { None };
 
-    let tools_val = if has_tools { Some(Value::String("[tools]".into())) } else { None };
+    let tools_val = if has_tools {
+        match level {
+            1 | 2 => Some(Value::String("[tools]".into())),
+            3 => val.get("tools").cloned(),  // Show actual tools at level 3 for debugging
+            _ => None,
+        }
+    } else { None };
 
     let mut obj = serde_json::Map::new();
     obj.insert("model".into(), model);
     if !max_tokens.is_null() { obj.insert("max_tokens".into(), max_tokens); }
     if !temperature.is_null() { obj.insert("temperature".into(), temperature); }
-    if let Some(s) = system_val { obj.insert("system".into(), s); }
+    
+    // Use correct field name based on what's in the original request
+    if let Some(s) = system_val {
+        if val.get("instructions").is_some() {
+            obj.insert("instructions".into(), s);
+        } else {
+            obj.insert("system".into(), s);
+        }
+    }
+    
     if let Some(m) = messages_val { obj.insert("messages".into(), m); }
     if let Some(t) = tools_val { obj.insert("tools".into(), t); }
     Value::Object(obj)
@@ -164,6 +194,317 @@ fn summarize_response_value(val: &serde_json::Value) -> serde_json::Value {
         obj.insert("usage".into(), usage);
     }
     Value::Object(obj)
+}
+
+/// Prepare Anthropic request string for detailed logging with ALL parameters visible
+pub fn prepare_anthropic_request_log(request: &anthropic_ox::ChatRequest) -> Option<String> {
+    use serde_json::Value;
+    
+    let mut obj = serde_json::Map::new();
+    
+    // Core fields
+    obj.insert("model".into(), Value::String(request.model.clone()));
+    obj.insert("messages".into(), if request.messages.is_empty() { 
+        Value::String("[empty]".into()) 
+    } else { 
+        Value::String(format!("[{} messages]", request.messages.len()))
+    });
+    
+    // System instruction - show even if None
+    obj.insert("system".into(), request.system.as_ref()
+        .map(|_| Value::String("[system]".into()))
+        .unwrap_or(Value::String("null".into())));
+    
+    // Required field but show for completeness
+    obj.insert("max_tokens".into(), Value::Number(request.max_tokens.into()));
+    
+    // Optional fields - show even if None
+    obj.insert("metadata".into(), request.metadata.as_ref()
+        .map(|v| v.clone())
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("stop_sequences".into(), request.stop_sequences.as_ref()
+        .map(|v| Value::Array(v.iter().map(|s| Value::String(s.clone())).collect()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("stream".into(), request.stream
+        .map(Value::Bool)
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("temperature".into(), request.temperature
+        .map(|v| Value::Number(serde_json::Number::from_f64(v as f64).unwrap()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("top_p".into(), request.top_p
+        .map(|v| Value::Number(serde_json::Number::from_f64(v as f64).unwrap()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("top_k".into(), request.top_k
+        .map(|v| Value::Number(v.into()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("tools".into(), request.tools.as_ref()
+        .map(|v| Value::String(format!("[{} tools]", v.len())))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("tool_choice".into(), request.tool_choice.as_ref()
+        .map(|_| Value::String("[tool_choice]".into()))
+        .unwrap_or(Value::String("null".into())));
+    
+    // Thinking configuration
+    obj.insert("thinking".into(), request.thinking.as_ref()
+        .map(|t| {
+            let mut thinking_obj = serde_json::Map::new();
+            thinking_obj.insert("config_type".into(), Value::String(t.config_type.clone()));
+            thinking_obj.insert("budget_tokens".into(), Value::Number(t.budget_tokens.into()));
+            Value::Object(thinking_obj)
+        })
+        .unwrap_or(Value::String("null".into())));
+    
+    serde_json::to_string_pretty(&Value::Object(obj)).ok()
+}
+
+/// Prepare Gemini request string for detailed logging with ALL parameters visible
+pub fn prepare_gemini_request_log(request: &gemini_ox::generate_content::request::GenerateContentRequest) -> Option<String> {
+    use serde_json::Value;
+    
+    let mut obj = serde_json::Map::new();
+    
+    // Core fields
+    obj.insert("model".into(), Value::String(request.model.clone()));
+    obj.insert("contents".into(), if request.contents.is_empty() { 
+        Value::String("[empty]".into()) 
+    } else { 
+        Value::String(format!("[{} contents]", request.contents.len()))
+    });
+    
+    // Optional fields - show even if None
+    obj.insert("tools".into(), request.tools.as_ref()
+        .map(|v| Value::String(format!("[{} tools]", v.len())))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("tool_config".into(), request.tool_config.as_ref()
+        .map(|_| Value::String("[tool_config]".into()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("safety_settings".into(), request.safety_settings.as_ref()
+        .map(|_| Value::String("[safety_settings]".into()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("system_instruction".into(), request.system_instruction.as_ref()
+        .map(|_| Value::String("[system_instruction]".into()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("cached_content".into(), request.cached_content.as_ref()
+        .map(|v| Value::String(v.clone()))
+        .unwrap_or(Value::String("null".into())));
+    
+    // Generation config - show detailed structure
+    obj.insert("generation_config".into(), request.generation_config.as_ref()
+        .map(|gc| {
+            let mut gc_obj = serde_json::Map::new();
+            gc_obj.insert("stop_sequences".into(), gc.stop_sequences.as_ref()
+                .map(|v| Value::Array(v.iter().map(|s| Value::String(s.clone())).collect()))
+                .unwrap_or(Value::String("null".into())));
+            gc_obj.insert("response_mime_type".into(), gc.response_mime_type.as_ref()
+                .map(|v| Value::String(v.clone()))
+                .unwrap_or(Value::String("null".into())));
+            gc_obj.insert("response_schema".into(), gc.response_schema.as_ref()
+                .map(|v| v.clone())
+                .unwrap_or(Value::String("null".into())));
+            gc_obj.insert("candidate_count".into(), gc.candidate_count
+                .map(|v| Value::Number(v.into()))
+                .unwrap_or(Value::String("null".into())));
+            gc_obj.insert("max_output_tokens".into(), gc.max_output_tokens
+                .map(|v| Value::Number(v.into()))
+                .unwrap_or(Value::String("null".into())));
+            gc_obj.insert("temperature".into(), gc.temperature
+                .map(|v| Value::Number(serde_json::Number::from_f64(v as f64).unwrap()))
+                .unwrap_or(Value::String("null".into())));
+            gc_obj.insert("top_p".into(), gc.top_p
+                .map(|v| Value::Number(serde_json::Number::from_f64(v as f64).unwrap()))
+                .unwrap_or(Value::String("null".into())));
+            gc_obj.insert("top_k".into(), gc.top_k
+                .map(|v| Value::Number(v.into()))
+                .unwrap_or(Value::String("null".into())));
+            
+            // Thinking config
+            gc_obj.insert("thinking_config".into(), gc.thinking_config.as_ref()
+                .map(|tc| {
+                    let mut thinking_obj = serde_json::Map::new();
+                    thinking_obj.insert("include_thoughts".into(), Value::Bool(tc.include_thoughts));
+                    thinking_obj.insert("thinking_budget".into(), Value::Number(tc.thinking_budget.into()));
+                    Value::Object(thinking_obj)
+                })
+                .unwrap_or(Value::String("null".into())));
+            
+            Value::Object(gc_obj)
+        })
+        .unwrap_or(Value::String("null".into())));
+    
+    serde_json::to_string_pretty(&Value::Object(obj)).ok()
+}
+
+/// Prepare OpenAI request string for detailed logging with ALL parameters visible
+pub fn prepare_openai_request_log(request: &openai_ox::ChatRequest) -> Option<String> {
+    use serde_json::Value;
+    
+    let mut obj = serde_json::Map::new();
+    
+    // Core fields
+    obj.insert("model".into(), Value::String(request.model.clone()));
+    obj.insert("messages".into(), if request.messages.is_empty() { 
+        Value::String("[empty]".into()) 
+    } else { 
+        Value::String(format!("[{} messages]", request.messages.len()))
+    });
+    
+    // Optional fields - show even if None
+    obj.insert("tools".into(), request.tools.as_ref()
+        .map(|v| Value::String(format!("[{} tools]", v.len())))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("user".into(), request.user.as_ref()
+        .map(|v| Value::String(v.clone()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("max_tokens".into(), request.max_tokens
+        .map(|v| Value::Number(v.into()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("temperature".into(), request.temperature
+        .map(|v| Value::Number(serde_json::Number::from_f64(v as f64).unwrap()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("top_p".into(), request.top_p
+        .map(|v| Value::Number(serde_json::Number::from_f64(v as f64).unwrap()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("stream".into(), request.stream
+        .map(Value::Bool)
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("stop".into(), request.stop.as_ref()
+        .map(|v| Value::Array(v.iter().map(|s| Value::String(s.clone())).collect()))
+        .unwrap_or(Value::String("null".into())));
+    
+    // OpenAI-specific extensions
+    obj.insert("n".into(), request.n
+        .map(|v| Value::Number(v.into()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("presence_penalty".into(), request.presence_penalty
+        .map(|v| Value::Number(serde_json::Number::from_f64(v as f64).unwrap()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("frequency_penalty".into(), request.frequency_penalty
+        .map(|v| Value::Number(serde_json::Number::from_f64(v as f64).unwrap()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("logit_bias".into(), request.logit_bias.as_ref()
+        .map(|v| {
+            let bias_map: serde_json::Map<String, Value> = v.iter()
+                .map(|(k, v)| (k.clone(), Value::Number(serde_json::Number::from_f64(*v as f64).unwrap())))
+                .collect();
+            Value::Object(bias_map)
+        })
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("seed".into(), request.seed
+        .map(|v| Value::Number(v.into()))
+        .unwrap_or(Value::String("null".into())));
+    
+    serde_json::to_string_pretty(&Value::Object(obj)).ok()
+}
+
+/// Prepare OpenRouter request string for detailed logging with ALL parameters visible
+pub fn prepare_openrouter_request_log(request: &openrouter_ox::ChatRequest) -> Option<String> {
+    use serde_json::Value;
+    
+    let mut obj = serde_json::Map::new();
+    
+    // Core OpenAI format fields
+    obj.insert("model".into(), Value::String(request.model.clone()));
+    obj.insert("messages".into(), if request.messages.is_empty() { 
+        Value::String("[empty]".into()) 
+    } else { 
+        Value::String(format!("[{} messages]", request.messages.len()))
+    });
+    
+    // Optional core fields - show even if None
+    obj.insert("response_format".into(), request.response_format.as_ref()
+        .map(|v| v.clone()).unwrap_or(Value::String("null".into())));
+    obj.insert("temperature".into(), request.temperature
+        .map(|v| Value::Number(serde_json::Number::from_f64(v).unwrap()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("top_p".into(), request.top_p
+        .map(|v| Value::Number(serde_json::Number::from_f64(v).unwrap()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("max_tokens".into(), request.max_tokens
+        .map(|v| Value::Number(v.into()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("stop".into(), request.stop.as_ref()
+        .map(|v| Value::Array(v.iter().map(|s| Value::String(s.clone())).collect()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("stream".into(), request.stream
+        .map(Value::Bool)
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("tools".into(), request.tools.as_ref()
+        .map(|v| Value::String(format!("[{} tools]", v.len())))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("tool_choice".into(), request.tool_choice.as_ref()
+        .map(|_| Value::String("[tool_choice]".into()))
+        .unwrap_or(Value::String("null".into())));
+    
+    // OpenRouter-specific parameters
+    obj.insert("seed".into(), request.seed
+        .map(|v| Value::Number(v.into()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("top_k".into(), request.top_k
+        .map(|v| Value::Number(v.into()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("frequency_penalty".into(), request.frequency_penalty
+        .map(|v| Value::Number(serde_json::Number::from_f64(v).unwrap()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("presence_penalty".into(), request.presence_penalty
+        .map(|v| Value::Number(serde_json::Number::from_f64(v).unwrap()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("repetition_penalty".into(), request.repetition_penalty
+        .map(|v| Value::Number(serde_json::Number::from_f64(v).unwrap()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("logit_bias".into(), request.logit_bias.as_ref()
+        .map(|v| v.clone())
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("top_logprobs".into(), request.top_logprobs
+        .map(|v| Value::Number(v.into()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("min_p".into(), request.min_p
+        .map(|v| Value::Number(serde_json::Number::from_f64(v).unwrap()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("top_a".into(), request.top_a
+        .map(|v| Value::Number(serde_json::Number::from_f64(v).unwrap()))
+        .unwrap_or(Value::String("null".into())));
+    
+    // OpenRouter routing parameters
+    obj.insert("prediction".into(), request.prediction.as_ref()
+        .map(|_| Value::String("[prediction]".into()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("transforms".into(), request.transforms.as_ref()
+        .map(|v| Value::Array(v.iter().map(|s| Value::String(s.clone())).collect()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("models".into(), request.models.as_ref()
+        .map(|v| Value::Array(v.iter().map(|s| Value::String(s.clone())).collect()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("route".into(), request.route.as_ref()
+        .map(|v| Value::String(v.clone()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("preset".into(), request.preset.as_ref()
+        .map(|v| Value::String(v.clone()))
+        .unwrap_or(Value::String("null".into())));
+    obj.insert("provider".into(), request.provider.as_ref()
+        .map(|_| Value::String("[provider_prefs]".into()))
+        .unwrap_or(Value::String("null".into())));
+    
+    // Reasoning configuration (our new fix!)
+    obj.insert("reasoning".into(), request.reasoning.as_ref()
+        .map(|r| {
+            let mut reasoning_obj = serde_json::Map::new();
+            reasoning_obj.insert("enabled".into(), r.enabled
+                .map(Value::Bool)
+                .unwrap_or(Value::String("null".into())));
+            reasoning_obj.insert("effort".into(), r.effort.as_ref()
+                .map(|v| Value::String(v.clone()))
+                .unwrap_or(Value::String("null".into())));
+            reasoning_obj.insert("max_tokens".into(), r.max_tokens
+                .map(|v| Value::Number(v.into()))
+                .unwrap_or(Value::String("null".into())));
+            reasoning_obj.insert("exclude".into(), r.exclude
+                .map(Value::Bool)
+                .unwrap_or(Value::String("null".into())));
+            Value::Object(reasoning_obj)
+        })
+        .unwrap_or(Value::String("null".into())));
+    
+    serde_json::to_string_pretty(&Value::Object(obj)).ok()
 }
 
 /// Prepare request string for logging according to global payload mode
@@ -234,5 +575,128 @@ pub fn compact_request_for_logging<T: std::fmt::Debug>(request: &T) -> String {
         format!("{}...", truncated)
     } else {
         debug_str
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use openrouter_ox::{ChatRequest, ReasoningConfig};
+    use openrouter_ox::message::Message;
+
+    #[test]
+    fn test_anthropic_detailed_logging() {
+        let mut request = anthropic_ox::ChatRequest::builder()
+            .model("claude-3-sonnet")
+            .messages(Vec::<anthropic_ox::message::Message>::new())
+            .build();
+        
+        // Set some parameters
+        request.temperature = Some(0.7);
+        request.top_k = Some(40);
+        request.thinking = Some(anthropic_ox::request::ThinkingConfig::new(2000));
+        
+        let log_output = prepare_anthropic_request_log(&request);
+        assert!(log_output.is_some());
+        
+        let log_str = log_output.unwrap();
+        println!("Sample Anthropic detailed log:\n{}", log_str);
+        
+        // Verify all fields are present
+        assert!(log_str.contains("temperature"));
+        assert!(log_str.contains("thinking"));
+        assert!(log_str.contains("budget_tokens"));
+        assert!(log_str.contains("\"null\"")); // Should show null values
+    }
+    
+    #[test]
+    fn test_openai_detailed_logging() {
+        let mut request = openai_ox::ChatRequest::builder()
+            .model("gpt-4")
+            .messages(vec![])
+            .build();
+        
+        // Set some parameters
+        request.temperature = Some(0.8);
+        request.seed = Some(123);
+        request.n = Some(2);
+        
+        let log_output = prepare_openai_request_log(&request);
+        assert!(log_output.is_some());
+        
+        let log_str = log_output.unwrap();
+        println!("Sample OpenAI detailed log:\n{}", log_str);
+        
+        // Verify all fields are present
+        assert!(log_str.contains("temperature"));
+        assert!(log_str.contains("seed"));
+        assert!(log_str.contains("\"null\"")); // Should show null values
+    }
+    
+    #[test]
+    fn test_gemini_detailed_logging() {
+        use gemini_ox::generate_content::{GenerationConfig, ThinkingConfig};
+        
+        let mut request = gemini_ox::generate_content::request::GenerateContentRequest::builder()
+            .model("gemini-2.0-flash")
+            .content_list(vec![])
+            .build();
+        
+        // Set generation config with thinking
+        let mut gen_config = GenerationConfig::default();
+        gen_config.temperature = Some(0.9);
+        gen_config.thinking_config = Some(ThinkingConfig {
+            include_thoughts: true,
+            thinking_budget: 1500,
+        });
+        request.generation_config = Some(gen_config);
+        
+        let log_output = prepare_gemini_request_log(&request);
+        assert!(log_output.is_some());
+        
+        let log_str = log_output.unwrap();
+        println!("Sample Gemini detailed log:\n{}", log_str);
+        
+        // Verify all fields are present
+        assert!(log_str.contains("generation_config"));
+        assert!(log_str.contains("thinking_config"));
+        assert!(log_str.contains("include_thoughts"));
+        assert!(log_str.contains("\"null\"")); // Should show null values
+    }
+    fn test_openrouter_detailed_logging() {
+        // Create a sample OpenRouter request with various parameters
+        let mut request = ChatRequest::new("openrouter/openai/gpt-4o", vec![
+            Message::user("Test message"),
+        ]);
+        
+        // Set some parameters to show in log
+        request.temperature = Some(0.8);
+        request.max_tokens = Some(2000);
+        request.seed = Some(42);
+        request.top_k = Some(50);
+        request.frequency_penalty = Some(0.5);
+        
+        // Add reasoning config with the new structure
+        request.reasoning = Some(ReasoningConfig {
+            enabled: Some(true),
+            effort: Some("high".to_string()),
+            max_tokens: Some(1500),
+            exclude: Some(false),
+        });
+        
+        let log_output = prepare_openrouter_request_log(&request);
+        assert!(log_output.is_some());
+        
+        let log_str = log_output.unwrap();
+        println!("Sample OpenRouter detailed log:\n{}", log_str);
+        
+        // Verify all fields are present (even null ones)
+        assert!(log_str.contains("temperature"));
+        assert!(log_str.contains("seed"));
+        assert!(log_str.contains("reasoning"));
+        assert!(log_str.contains("effort"));
+        assert!(log_str.contains("\"high\""));
+        assert!(log_str.contains("provider"));
+        assert!(log_str.contains("null")); // Should show null values
     }
 }

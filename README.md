@@ -135,9 +135,21 @@ curl -d '{"model": "anthropic/claude-5-epos?temperature=0.8&max_tokens=1500", ..
 curl -d '{"model": "openrouter/openai/gpt-4o?seed=42&frequency_penalty=0.5&top_k=50", ...}'
 
 # Thinking/reasoning parameters
-curl -d '{"model": "anthropic/claude-3-sonnet?think=2000", ...}'  # Anthropic thinking
-curl -d '{"model": "openai/gpt-5?effort=high", ...}'      # OpenAI reasoning
-curl -d '{"model": "gemini/gemini-2.5-pro?thoughts=true&think=1000", ...}'
+
+## Anthropic thinking
+curl -d '{"model": "anthropic/claude-3-sonnet?think=2000", ...}'  # Anthropic thinking (token budget)
+
+## OpenRouter reasoning (NEW - Updated implementation)
+# Basic reasoning with structured configuration
+curl -d '{"model": "openrouter/openai/gpt-4o?reasoning=true", ...}'  # Enable basic reasoning
+curl -d '{"model": "openrouter/openai/gpt-4o?reasoning=true&effort=high", ...}'  # High depth reasoning
+curl -d '{"model": "openrouter/openai/gpt-4o?reasoning=true&effort=medium", ...}'  # Medium depth reasoning
+curl -d '{"model": "openrouter/openai/gpt-4o?reasoning=true&effort=low", ...}'  # Low depth reasoning
+curl -d '{"model": "openrouter/openai/gpt-4o?reasoning=true&reasoning_max_tokens=2000", ...}'  # Set reasoning token budget
+curl -d '{"model": "openrouter/openai/gpt-4o?reasoning=true&reasoning_exclude=true", ...}'  # Hide reasoning output from response
+
+## Gemini thinking
+curl -d '{"model": "gemini/gemini-2.0-flash-thinking?thoughts=true&think=1000", ...}'  # Gemini thinking
 ```
 
 ### Model mapping in Claude Code
@@ -156,7 +168,7 @@ Claude Code lets you specify models with `/model my-model`. You can either:
 "best-fucking-model" = "openrouter/x-ai/grok-5-mechahitler"
 "fast" = "openrouter/z-ai/glm-4.5:nitro"
 "free" = "openrouter/santa/free-christmas-model"
-"reasoning" = ["openai/gpt-5?effort=high", "anthropic/claude-5-epos?think_budget=1e6", "google/gemini-3.5-agi"]
+"reasoning" = ["openrouter/openai/gpt-4o?reasoning=true&effort=high&reasoning_max_tokens=2000", "anthropic/claude-3-5-sonnet?think=2000", "gemini/gemini-2.0-flash-thinking?thoughts=true&think=1000"]
 ```
 
 Then just use the alias:
@@ -220,6 +232,39 @@ Or use explicit interpolation in config:
 [providers.anthropic]
 api_key = "${MY_ANTHROPIC_API_KEY_WITH_SHITTY_NON_STANDARD_NAME}"
 ```
+
+## Reasoning Parameters
+
+OpenRouter supports advanced reasoning parameters for models that support it. These parameters control the depth and visibility of the model's reasoning process.
+
+### Reasoning Parameter Reference
+
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| `reasoning` | `true`, `false` | Enable/disable reasoning capability |
+| `effort` | `high`, `medium`, `low` | Control reasoning depth - **does NOT affect provider preference sorting** |
+| `reasoning_max_tokens` | any positive integer | Set specific token budget for reasoning process |
+| `reasoning_exclude` | `true`, `false` | Hide reasoning output from final response |
+
+### Examples
+
+```bash
+# Basic reasoning
+curl -d '{"model": "openrouter/openai/gpt-4o?reasoning=true", ...}'
+
+# Deep reasoning with specific token budget
+curl -d '{"model": "openrouter/openai/gpt-4o?reasoning=true&effort=high&reasoning_max_tokens=4000", ...}'
+
+# Reasoning without showing the process
+curl -d '{"model": "openrouter/openai/gpt-4o?reasoning=true&reasoning_exclude=true", ...}'
+```
+
+### Migration from Old Syntax
+
+**Old (deprecated):** `reasoning=true` boolean only
+**New:** Structured reasoning configuration
+
+The `effort` parameter now **explicitly controls reasoning depth** instead of incorrectly mapping to provider preferences (throughput vs price sorting). Use separate parameters for provider routing vs reasoning configuration.
 
 ## Commands
 

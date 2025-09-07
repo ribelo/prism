@@ -10,27 +10,6 @@ use crate::error::SetuError;
 use crate::router::name_based::RoutingDecision;
 use crate::server::error_handling;
 
-/// OpenAI models endpoint - return simple model list
-pub async fn openai_models() -> axum::response::Json<Value> {
-    axum::response::Json(json!({
-        "object": "list",
-        "data": [
-            {
-                "id": "anthropic/claude-3-5-sonnet",
-                "object": "model",
-                "created": 1677610602,
-                "owned_by": "setu-router"
-            },
-            {
-                "id": "openrouter/openai/gpt-4o",
-                "object": "model",
-                "created": 1677610602,
-                "owned_by": "setu-router"
-            }
-        ]
-    }))
-}
-
 /// Create OpenRouter client with API key authentication
 pub async fn create_openrouter_client(config: Arc<Mutex<Config>>) -> Result<OpenRouter, SetuError> {
     // Try OPENROUTER_API_KEY first (correct OpenRouter key)
@@ -231,7 +210,12 @@ pub async fn handle_openrouter_request(
         ) {
             Ok(mut req) => {
                 // Fix the model name - use cleaned model without provider prefix
-                req.model = routing_decision.model.clone();
+                // If routing decision targets explicit OpenAI provider, prefix accordingly for OpenRouter
+                if routing_decision.provider == "openai" {
+                    req.model = format!("openai/{}", routing_decision.model);
+                } else {
+                    req.model = routing_decision.model.clone();
+                }
                 req
             }
             Err(e) => {
@@ -251,8 +235,8 @@ pub async fn handle_openrouter_request(
         openrouter_request = updated_request;
     }
 
-    if let Some(req_str) = crate::server::error_handling::prepare_request_log(&openrouter_request) {
-        tracing::debug!(target: "setu::request", "Outgoing OpenRouter request: {}", req_str);
+    if let Some(req_str) = crate::server::error_handling::prepare_openrouter_request_log(&openrouter_request) {
+        tracing::debug!(target: "setu::request", "Outgoing OpenRouter request (detailed): {}", req_str);
     }
 
     // Send request to OpenRouter
@@ -294,4 +278,24 @@ pub async fn handle_openrouter_request(
             &e,
         )),
     }
+}
+/// OpenAI models endpoint - return simple model list
+pub async fn openai_models() -> axum::response::Json<Value> {
+    axum::response::Json(json!({
+        "object": "list",
+        "data": [
+            {
+                "id": "anthropic/claude-3-5-sonnet",
+                "object": "model",
+                "created": 1677610602,
+                "owned_by": "setu-router"
+            },
+            {
+                "id": "openrouter/openai/gpt-4o",
+                "object": "model",
+                "created": 1677610602,
+                "owned_by": "setu-router"
+            }
+        ]
+    }))
 }

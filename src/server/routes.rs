@@ -56,6 +56,15 @@ pub async fn openai_chat_completions(
             )
             .await
         }
+        "openai" => {
+            crate::server::providers::openai::handle_openai_request_from_openai(
+                app_state.config.clone(),
+                openai_request,
+                routing_decision,
+                parts.headers,
+            )
+            .await
+        }
         "gemini" | "google" => {
             gemini::handle_gemini_request_from_openai(
                 app_state.config.clone(),
@@ -127,10 +136,54 @@ pub async fn anthropic_messages(
         tracing::debug!(target: "setu::incoming", "Incoming Anthropic messages request: {}", in_str);
     }
 
-    // Route based on model name
+    // Derive optional model override from a directive at the top of system prompt
+    fn extract_model_override_from_system(req: &anthropic_ox::ChatRequest) -> Option<String> {
+        let val = serde_json::to_value(req).ok()?;
+        let system_val = val.get("system")?;
+        // Build owned system text
+        let system_text_owned: String = if let Some(s) = system_val.as_str() {
+            s.to_string()
+        } else {
+            // If system is structured, collect strings and join
+            let mut parts = Vec::new();
+            fn collect_strings(v: &serde_json::Value, out: &mut Vec<String>) {
+                match v {
+                    serde_json::Value::String(s) => out.push(s.clone()),
+                    serde_json::Value::Array(arr) => for i in arr { collect_strings(i, out); },
+                    serde_json::Value::Object(map) => for i in map.values() { collect_strings(i, out); },
+                    _ => {}
+                }
+            }
+            collect_strings(system_val, &mut parts);
+            parts.join("\n")
+        };
+        let system_text = system_text_owned.as_str();
+
+        // Consider only the first few lines to avoid false positives
+        let mut candidate: Option<String> = None;
+        for line in system_text.lines().take(20) {
+            let trimmed = line.trim();
+            if trimmed.is_empty() { continue; }
+            // Skip Claude Code preamble tokens that may appear before the agent body
+            if trimmed == "ephemeral" || trimmed == "text" || trimmed.starts_with("You are Claude Code") {
+                continue;
+            }
+            // Check for directive comment as the first meaningful line
+            if let Some(caps) = Regex::new(r"^<!--\s*([^\s>]+/[^\s>:]+(?::[^\s>]+)?(?:\?[^\s>]+)?)\s*-->$").unwrap().captures(trimmed) {
+                candidate = Some(caps.get(1).unwrap().as_str().to_string());
+            }
+            break;
+        }
+        candidate
+    }
+
+    // Route based on model name (respect optional system directive)
     let config = app_state.config.lock().await.clone();
     let router = ModelRouter::new(config);
-    let routing_decision = match router.route_model(&anthropic_request.model) {
+    let override_owned = extract_model_override_from_system(&anthropic_request);
+    let route_input_owned: String = override_owned.unwrap_or_else(|| anthropic_request.model.clone());
+    let route_input = route_input_owned.as_str();
+    let routing_decision = match router.route_model(route_input) {
         Ok(decisions) => {
             // Use the first routing decision (primary route)
             decisions.into_iter().next().ok_or_else(|| {
@@ -207,6 +260,15 @@ pub async fn anthropic_messages(
         }
         "openrouter" => {
             openrouter::handle_openrouter_request(
+                app_state.config.clone(),
+                anthropic_request,
+                routing_decision,
+                parts.headers,
+            )
+            .await
+        }
+        "openai" => {
+            crate::server::providers::openai::handle_openai_request_from_anthropic(
                 app_state.config.clone(),
                 anthropic_request,
                 routing_decision,
