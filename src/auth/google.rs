@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::auth::common::{TokenInfo, analyze_token_source, choose_best_token_source};
 use crate::config::AuthConfig;
-use crate::error::{Result, SetuError};
+use crate::error::{Result, PrismError};
 
 /// Project ID used for Gemini Cloud Code Assist API
 ///
@@ -73,7 +73,7 @@ impl GoogleOAuth {
             .form(&params)
             .send()
             .await
-            .map_err(|e| SetuError::Other(format!("Token refresh request failed: {}", e)))?;
+            .map_err(|e| PrismError::Other(format!("Token refresh request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -82,14 +82,14 @@ impl GoogleOAuth {
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
 
-            return Err(SetuError::Other(format!(
+            return Err(PrismError::Other(format!(
                 "Token refresh failed with status {}: {}",
                 status, error_text
             )));
         }
 
         let refresh_response: TokenRefreshResponse = response.json().await.map_err(|e| {
-            SetuError::Other(format!("Failed to parse token refresh response: {}", e))
+            PrismError::Other(format!("Failed to parse token refresh response: {}", e))
         })?;
 
         tracing::info!("Successfully refreshed Gemini OAuth token");
@@ -108,7 +108,7 @@ impl GoogleOAuth {
         // Calculate new expiry time
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| SetuError::Other(format!("Time error: {}", e)))?
+            .map_err(|e| PrismError::Other(format!("Time error: {}", e)))?
             .as_millis() as u64;
 
         credentials.expiry_date = now + (refresh_response.expires_in * 1000);
@@ -121,10 +121,10 @@ impl GoogleOAuth {
         // Write updated credentials back to file
         let credentials_path = Self::get_gemini_credentials_path()?;
         let contents = serde_json::to_string_pretty(&credentials)
-            .map_err(|e| SetuError::Other(format!("Failed to serialize credentials: {}", e)))?;
+            .map_err(|e| PrismError::Other(format!("Failed to serialize credentials: {}", e)))?;
 
         fs::write(&credentials_path, contents).map_err(|e| {
-            SetuError::Other(format!(
+            PrismError::Other(format!(
                 "Failed to write updated credentials to {}: {}",
                 credentials_path.display(),
                 e
@@ -141,7 +141,7 @@ impl GoogleOAuth {
         let credentials_path = Self::get_gemini_credentials_path()?;
 
         let contents = fs::read_to_string(&credentials_path).map_err(|e| {
-            SetuError::Other(format!(
+            PrismError::Other(format!(
                 "Failed to read Gemini CLI credentials from {}: {}",
                 credentials_path.display(),
                 e
@@ -150,13 +150,13 @@ impl GoogleOAuth {
 
         let mut credentials: GeminiOAuthCredentials =
             serde_json::from_str(&contents).map_err(|e| {
-                SetuError::Other(format!("Failed to parse Gemini CLI credentials: {}", e))
+                PrismError::Other(format!("Failed to parse Gemini CLI credentials: {}", e))
             })?;
 
         // Check if token has expired
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| SetuError::Other(format!("Time error: {}", e)))?
+            .map_err(|e| PrismError::Other(format!("Time error: {}", e)))?
             .as_millis() as u64;
 
         if credentials.expiry_date <= now {
@@ -172,14 +172,14 @@ impl GoogleOAuth {
                         tracing::info!("Successfully refreshed expired Gemini OAuth token");
                     }
                     Err(e) => {
-                        return Err(SetuError::Other(format!(
+                        return Err(PrismError::Other(format!(
                             "Gemini CLI OAuth token has expired and refresh failed: {}",
                             e
                         )));
                     }
                 }
             } else {
-                return Err(SetuError::Other(
+                return Err(PrismError::Other(
                     "Gemini CLI OAuth token has expired and no refresh token is available"
                         .to_string(),
                 ));
@@ -191,7 +191,7 @@ impl GoogleOAuth {
             .scope
             .contains("https://www.googleapis.com/auth/cloud-platform")
         {
-            return Err(SetuError::Other(
+            return Err(PrismError::Other(
                 "Gemini CLI OAuth token missing required 'cloud-platform' scope".to_string(),
             ));
         }
@@ -210,7 +210,7 @@ impl GoogleOAuth {
     fn get_gemini_credentials_path() -> Result<PathBuf> {
         // Try to get home directory
         let home = std::env::var("HOME")
-            .map_err(|_| SetuError::Other("HOME environment variable not set".to_string()))?;
+            .map_err(|_| PrismError::Other("HOME environment variable not set".to_string()))?;
 
         Ok(PathBuf::from(home).join(".gemini").join("oauth_creds.json"))
     }
@@ -219,7 +219,7 @@ impl GoogleOAuth {
     fn ensure_project_id(auth_config: &mut AuthConfig) {
         if auth_config.project_id.is_none() {
             tracing::info!(
-                "Adding missing project_id to setu config: {}",
+                "Adding missing project_id to prism config: {}",
                 GEMINI_PROJECT_ID
             );
             auth_config.project_id = Some(GEMINI_PROJECT_ID.to_string());
@@ -227,9 +227,9 @@ impl GoogleOAuth {
     }
 
     /// Validate that OAuth tokens are present and can be refreshed if needed
-    /// Compares setu and Gemini CLI tokens, always choosing the newer one with full rationale
+    /// Compares prism and Gemini CLI tokens, always choosing the newer one with full rationale
     pub async fn validate_auth_config(auth_config: &mut AuthConfig) -> Result<()> {
-        let setu_token_info = analyze_token_source("setu config", auth_config);
+        let prism_token_info = analyze_token_source("prism config", auth_config);
         let gemini_token_info = Self::try_gemini_cli_credentials()
             .await
             .map(|config| analyze_token_source("Gemini CLI", &config))
@@ -239,11 +239,11 @@ impl GoogleOAuth {
             });
 
         tracing::info!("Gemini Token Analysis:");
-        tracing::info!("  Setu config: {}", setu_token_info);
+        tracing::info!("  Setu config: {}", prism_token_info);
         tracing::info!("  Gemini CLI: {}", gemini_token_info);
 
         // Choose the best token source
-        let chosen_source = choose_best_token_source(&setu_token_info, &gemini_token_info);
+        let chosen_source = choose_best_token_source(&prism_token_info, &gemini_token_info);
         tracing::info!("Gemini Decision: {}", chosen_source);
 
         match chosen_source.source.as_str() {
@@ -253,12 +253,12 @@ impl GoogleOAuth {
                     return Ok(());
                 }
             }
-            "setu config" => {
-                // Use existing setu tokens - ensure project_id is always set
+            "prism config" => {
+                // Use existing prism tokens - ensure project_id is always set
                 Self::ensure_project_id(auth_config);
             }
             "none" => {
-                return Err(SetuError::Other(
+                return Err(PrismError::Other(
                     "No valid OAuth tokens found from any source\n\n\
                      To fix this issue, you have two options:\n\
                      1. Run: setu auth google       (get fresh setu tokens)\n\
@@ -269,8 +269,8 @@ impl GoogleOAuth {
             }
             _ => {
                 // Both tokens are expired - fail startup with clear instructions
-                if setu_token_info.is_expired && gemini_token_info.is_expired {
-                    return Err(SetuError::Other(format!(
+                if prism_token_info.is_expired && gemini_token_info.is_expired {
+                    return Err(PrismError::Other(format!(
                         "All Gemini OAuth tokens are expired!\n\n\
                          Token Status:\n\
                          - Setu config: {}\n\
@@ -279,11 +279,11 @@ impl GoogleOAuth {
                          1. Run: setu auth google       (get fresh setu tokens)\n\
                          2. Run: gemini auth login      (refresh Gemini CLI tokens)\n\n\
                          Setu will automatically use whichever tokens are newer.",
-                        setu_token_info, gemini_token_info
+                        prism_token_info, gemini_token_info
                     )));
                 }
 
-                return Err(SetuError::Other(format!(
+                return Err(PrismError::Other(format!(
                     "Unexpected token selection result: {}",
                     chosen_source.source
                 )));
@@ -292,8 +292,8 @@ impl GoogleOAuth {
 
         // Check if we have access token
         if auth_config.oauth_access_token.is_none() {
-            return Err(SetuError::Other(
-                "No OAuth access token found. Please run 'setu auth google' to authenticate."
+            return Err(PrismError::Other(
+                "No OAuth access token found. Please run 'prism auth google' to authenticate."
                     .to_string(),
             ));
         }

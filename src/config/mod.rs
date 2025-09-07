@@ -7,7 +7,7 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use crate::error::{Result, SetuError};
+use crate::error::{Result, PrismError};
 
 pub mod models;
 
@@ -227,7 +227,7 @@ impl Config {
             .merge(Toml::file(&config_file))
             .merge(Env::prefixed("SETU_"))
             .extract()
-            .map_err(|e| SetuError::Config(Box::new(e)))?;
+            .map_err(|e| PrismError::Config(Box::new(e)))?;
 
         let mut config: Config = config;
         config.interpolate_api_keys();
@@ -269,7 +269,7 @@ impl Config {
         let config_file = config_dir.join("setu.toml");
 
         let toml_string = toml::to_string_pretty(self)
-            .map_err(|e| SetuError::Other(format!("Failed to serialize config: {}", e)))?;
+            .map_err(|e| PrismError::Other(format!("Failed to serialize config: {}", e)))?;
 
         // Write config file with restricted permissions (600 - owner read/write only)
         std::fs::write(&config_file, toml_string)?;
@@ -287,7 +287,7 @@ impl Config {
 
 fn get_config_dir() -> Result<PathBuf> {
     let project_dirs = ProjectDirs::from("", "", "setu")
-        .ok_or_else(|| SetuError::Other("Could not determine config directory".to_string()))?;
+        .ok_or_else(|| PrismError::Other("Could not determine config directory".to_string()))?;
 
     let config_dir = project_dirs.config_dir();
     std::fs::create_dir_all(config_dir)?;
@@ -297,7 +297,7 @@ fn get_config_dir() -> Result<PathBuf> {
 
 fn get_data_dir() -> Result<PathBuf> {
     let project_dirs = ProjectDirs::from("", "", "setu")
-        .ok_or_else(|| SetuError::Other("Could not determine data directory".to_string()))?;
+        .ok_or_else(|| PrismError::Other("Could not determine data directory".to_string()))?;
 
     let data_dir = project_dirs.data_dir();
     std::fs::create_dir_all(data_dir)?;

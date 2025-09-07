@@ -29,15 +29,15 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            name: setu-linux-x86_64
+            name: prism-linux-x86_64
             
           - target: aarch64-apple-darwin
             os: macos-latest
-            name: setu-macos-aarch64
+            name: prism-macos-aarch64
             
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            name: setu-windows-x86_64.exe
+            name: prism-windows-x86_64.exe
 
     runs-on: ${{ matrix.os }}
     
@@ -56,12 +56,12 @@ jobs:
       - name: Rename binary (Unix)
         if: matrix.os != 'windows-latest'
         run: |
-          cp target/${{ matrix.target }}/release/setu ${{ matrix.name }}
+          cp target/${{ matrix.target }}/release/prism ${{ matrix.name }}
           
       - name: Rename binary (Windows)  
         if: matrix.os == 'windows-latest'
         run: |
-          cp target/${{ matrix.target }}/release/setu.exe ${{ matrix.name }}
+          cp target/${{ matrix.target }}/release/prism.exe ${{ matrix.name }}
           
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
@@ -87,9 +87,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            setu-linux-x86_64/setu-linux-x86_64
-            setu-macos-aarch64/setu-macos-aarch64  
-            setu-windows-x86_64.exe/setu-windows-x86_64.exe
+            prism-linux-x86_64/prism-linux-x86_64
+            prism-macos-aarch64/prism-macos-aarch64  
+            prism-windows-x86_64.exe/prism-windows-x86_64.exe
           generate_release_notes: true
           draft: false
           prerelease: false

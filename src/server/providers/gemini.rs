@@ -6,12 +6,12 @@ use tracing::info;
 
 use crate::auth::google::GoogleOAuth;
 use crate::config::Config;
-use crate::error::SetuError;
+use crate::error::PrismError;
 use crate::router::name_based::RoutingDecision;
 use crate::server::error_handling;
 
 /// Create Gemini client with appropriate authentication
-pub async fn create_gemini_client(config: Arc<Mutex<Config>>) -> Result<Gemini, SetuError> {
+pub async fn create_gemini_client(config: Arc<Mutex<Config>>) -> Result<Gemini, PrismError> {
     // Try Claude Code OAuth first (highest priority)
     if let Ok(gemini_config) = GoogleOAuth::try_gemini_cli_credentials().await
         && let Some(oauth_token) = gemini_config.oauth_access_token
@@ -21,12 +21,12 @@ pub async fn create_gemini_client(config: Arc<Mutex<Config>>) -> Result<Gemini, 
         return Ok(client);
     }
 
-    // Try setu config OAuth
+    // Try prism config OAuth
     let config_guard = config.lock().await;
     if let Some(gemini_provider) = config_guard.providers.get("gemini")
         && let Some(oauth_token) = &gemini_provider.auth.oauth_access_token
     {
-        info!("🔐 Gemini → OAuth via setu config (subscription billing)");
+        info!("🔐 Gemini → OAuth via prism config (subscription billing)");
         let client = Gemini::builder().oauth_token(oauth_token).build();
         return Ok(client);
     }
@@ -38,7 +38,7 @@ pub async fn create_gemini_client(config: Arc<Mutex<Config>>) -> Result<Gemini, 
         return Ok(client);
     }
 
-    Err(SetuError::Other(
+    Err(PrismError::Other(
         "No Gemini authentication available (OAuth or API key)".to_string(),
     ))
 }

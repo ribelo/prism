@@ -38,12 +38,12 @@ pub struct AppState {
     pub config_path: std::path::PathBuf,
 }
 
-pub struct SetuServer {
+pub struct PrismServer {
     config: Config,
     auth_cache: AuthCache,
 }
 
-impl SetuServer {
+impl PrismServer {
     pub fn new(config: Config, auth_cache: AuthCache) -> Self {
         Self { config, auth_cache }
     }
@@ -304,7 +304,7 @@ async fn background_token_maintenance(config: Arc<Mutex<Config>>) {
                     }
                     Err(e) => {
                         tracing::error!("Background token refresh failed: {}", e);
-                        tracing::warn!("Tokens may need manual refresh via 'setu auth anthropic'");
+                        tracing::warn!("Tokens may need manual refresh via 'prism auth anthropic'");
                     }
                 }
             }

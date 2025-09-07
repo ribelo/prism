@@ -9,7 +9,7 @@ use url::Url;
 
 use crate::auth::common::{TokenInfo, analyze_token_source, choose_best_token_source};
 use crate::config::AuthConfig;
-use crate::error::{Result, SetuError};
+use crate::error::{Result, PrismError};
 
 const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
@@ -54,7 +54,7 @@ impl AnthropicOAuth {
         let credentials_path = Self::get_claude_credentials_path()?;
 
         let contents = fs::read_to_string(&credentials_path).map_err(|e| {
-            SetuError::Other(format!(
+            PrismError::Other(format!(
                 "Failed to read Claude Code credentials from {}: {}",
                 credentials_path.display(),
                 e
@@ -62,7 +62,7 @@ impl AnthropicOAuth {
         })?;
 
         let credentials: ClaudeCodeCredentials = serde_json::from_str(&contents).map_err(|e| {
-            SetuError::Other(format!("Failed to parse Claude Code credentials: {}", e))
+            PrismError::Other(format!("Failed to parse Claude Code credentials: {}", e))
         })?;
 
         let oauth = &credentials.claude_ai_oauth;
@@ -70,18 +70,18 @@ impl AnthropicOAuth {
         // Validate token hasn't expired
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| SetuError::Other(format!("Time error: {}", e)))?
+            .map_err(|e| PrismError::Other(format!("Time error: {}", e)))?
             .as_millis() as u64;
 
         if oauth.expires_at <= now {
-            return Err(SetuError::Other(
+            return Err(PrismError::Other(
                 "Claude Code OAuth token has expired".to_string(),
             ));
         }
 
         // Check for required scopes
         if !oauth.scopes.contains(&"user:inference".to_string()) {
-            return Err(SetuError::Other(
+            return Err(PrismError::Other(
                 "Claude Code OAuth token missing required 'user:inference' scope".to_string(),
             ));
         }
@@ -99,7 +99,7 @@ impl AnthropicOAuth {
     fn get_claude_credentials_path() -> Result<PathBuf> {
         // Try to get home directory
         let home = std::env::var("HOME")
-            .map_err(|_| SetuError::Other("HOME environment variable not set".to_string()))?;
+            .map_err(|_| PrismError::Other("HOME environment variable not set".to_string()))?;
 
         Ok(PathBuf::from(home)
             .join(".config")
@@ -125,7 +125,7 @@ impl AnthropicOAuth {
         let (pkce_challenge, pkce_verifier) = Self::generate_pkce_pair();
 
         let mut url = Url::parse("https://claude.ai/oauth/authorize")
-            .map_err(|e| SetuError::Other(format!("Failed to parse OAuth URL: {}", e)))?;
+            .map_err(|e| PrismError::Other(format!("Failed to parse OAuth URL: {}", e)))?;
 
         url.query_pairs_mut()
             .append_pair("code", "true")
@@ -165,7 +165,7 @@ impl AnthropicOAuth {
             .json(&request_body)
             .send()
             .await
-            .map_err(|e| SetuError::Other(format!("OAuth token exchange failed: {}", e)))?;
+            .map_err(|e| PrismError::Other(format!("OAuth token exchange failed: {}", e)))?;
 
         if !response.status().is_success() {
             // Store the status before moving the response
@@ -181,17 +181,17 @@ impl AnthropicOAuth {
                 "OAuth token exchange failed with status: {} - Body: {}",
                 status, error_body
             );
-            return Err(SetuError::Other(error_msg));
+            return Err(PrismError::Other(error_msg));
         }
 
         let token_response: TokenResponse = response
             .json()
             .await
-            .map_err(|e| SetuError::Other(format!("Failed to parse token response: {}", e)))?;
+            .map_err(|e| PrismError::Other(format!("Failed to parse token response: {}", e)))?;
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| SetuError::Other(format!("Time error: {}", e)))?
+            .map_err(|e| PrismError::Other(format!("Time error: {}", e)))?
             .as_millis() as u64;
 
         Ok(AuthConfig {
@@ -206,7 +206,7 @@ impl AnthropicOAuth {
         let refresh_token = auth_config
             .oauth_refresh_token
             .as_ref()
-            .ok_or_else(|| SetuError::Other("No refresh token available".to_string()))?;
+            .ok_or_else(|| PrismError::Other("No refresh token available".to_string()))?;
 
         tracing::info!("Attempting to refresh Anthropic OAuth token");
 
@@ -225,7 +225,7 @@ impl AnthropicOAuth {
             .json(&request_body)
             .send()
             .await
-            .map_err(|e| SetuError::Other(format!("Token refresh request failed: {}", e)))?;
+            .map_err(|e| PrismError::Other(format!("Token refresh request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -234,7 +234,7 @@ impl AnthropicOAuth {
                 .await
                 .unwrap_or_else(|_| "Unable to read error body".to_string());
 
-            return Err(SetuError::Other(format!(
+            return Err(PrismError::Other(format!(
                 "Token refresh failed with status {}: {}",
                 status, error_body
             )));
@@ -243,11 +243,11 @@ impl AnthropicOAuth {
         let token_response: TokenResponse = response
             .json()
             .await
-            .map_err(|e| SetuError::Other(format!("Failed to parse refresh response: {}", e)))?;
+            .map_err(|e| PrismError::Other(format!("Failed to parse refresh response: {}", e)))?;
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| SetuError::Other(format!("Time error: {}", e)))?
+            .map_err(|e| PrismError::Other(format!("Time error: {}", e)))?
             .as_millis() as u64;
 
         // Update auth config with new tokens
@@ -279,7 +279,7 @@ impl AnthropicOAuth {
                     }
                 }
             } else {
-                return Err(SetuError::Other(
+                return Err(PrismError::Other(
                     "No refresh token available and access token is expired".to_string(),
                 ));
             }
@@ -288,7 +288,7 @@ impl AnthropicOAuth {
         auth_config
             .oauth_access_token
             .clone()
-            .ok_or_else(|| SetuError::Other("No access token available after refresh".to_string()))
+            .ok_or_else(|| PrismError::Other("No access token available after refresh".to_string()))
     }
 
     /// Simple token persistence helper
@@ -306,32 +306,32 @@ impl AnthropicOAuth {
 
     /// Validate OAuth tokens - use newest available, fail if none valid
     pub async fn validate_auth_config(auth_config: &mut AuthConfig) -> Result<()> {
-        let setu_token_info = analyze_token_source("setu config", auth_config);
+        let prism_token_info = analyze_token_source("prism config", auth_config);
         let claude_token_info = Self::try_claude_code_credentials()
             .map(|config| analyze_token_source("Claude Code", &config))
             .unwrap_or_else(|_| TokenInfo::unavailable("Claude Code"));
 
-        let chosen_source = choose_best_token_source(&setu_token_info, &claude_token_info);
+        let chosen_source = choose_best_token_source(&prism_token_info, &claude_token_info);
         tracing::info!("Using {} tokens", chosen_source.source);
 
         match chosen_source.source.as_str() {
             "Claude Code" => {
                 *auth_config = Self::try_claude_code_credentials()?;
             }
-            "setu config" => {
-                // Use existing setu tokens - validation continues below
+            "prism config" => {
+                // Use existing prism tokens - validation continues below
             }
             _ => {
-                return Err(SetuError::Other(
-                    "No valid OAuth tokens available. Run 'setu auth anthropic' or start Claude Code first.".to_string(),
+                return Err(PrismError::Other(
+                    "No valid OAuth tokens available. Run 'prism auth anthropic' or start Claude Code first.".to_string(),
                 ));
             }
         }
 
         // Ensure we have valid tokens
         if auth_config.oauth_refresh_token.is_none() {
-            return Err(SetuError::Other(
-                "No refresh token available. Run 'setu auth anthropic'.".to_string(),
+            return Err(PrismError::Other(
+                "No refresh token available. Run 'prism auth anthropic'.".to_string(),
             ));
         }
 
@@ -340,7 +340,7 @@ impl AnthropicOAuth {
         }
 
         if auth_config.oauth_access_token.is_none() {
-            return Err(SetuError::Other(
+            return Err(PrismError::Other(
                 "Failed to obtain valid access token.".to_string(),
             ));
         }

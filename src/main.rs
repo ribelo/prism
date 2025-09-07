@@ -1,7 +1,7 @@
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
-use setu::commands::auth::AuthCommands;
-use setu::commands::run::RunCommands;
-use setu::{Config, Result};
+use prism::commands::auth::AuthCommands;
+use prism::commands::run::RunCommands;
+use prism::{Config, Result};
 use tracing::{error, info};
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -13,7 +13,7 @@ enum PayloadLogModeCli {
 }
 
 #[derive(Parser)]
-#[command(name = "setu")]
+#[command(name = "prism")]
 #[command(about = "Universal AI Model Router")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 struct Cli {
@@ -61,7 +61,7 @@ enum Commands {
     /// Diagnose OAuth token issues
     Diagnose,
 
-    /// Run applications with Setu as backend
+    /// Run applications with Prism as backend
     Run {
         #[command(subcommand)]
         run_command: RunCommands,
@@ -69,11 +69,11 @@ enum Commands {
 }
 
 async fn handle_auth_command(auth_command: AuthCommands) -> Result<()> {
-    setu::commands::auth::handle_auth_command(auth_command).await
+    prism::commands::auth::handle_auth_command(auth_command).await
 }
 
 async fn handle_run_command(run_command: RunCommands) -> Result<()> {
-    setu::commands::run::handle_run_command(run_command).await
+    prism::commands::run::handle_run_command(run_command).await
 }
 
 #[tokio::main]
@@ -101,7 +101,7 @@ async fn main() -> Result<()> {
 }
 
 async fn start_server(host: Option<String>, port: Option<u16>) -> Result<()> {
-    info!("Starting Setu server...");
+    info!("Starting Prism server...");
 
     let mut config = Config::load()?;
 
@@ -118,7 +118,7 @@ async fn start_server(host: Option<String>, port: Option<u16>) -> Result<()> {
         error!("OAuth token validation failed: {}", e);
         println!();
         println!("To fix this issue:");
-        println!("   1. Run: setu auth anthropic");
+        println!("   1. Run: prism auth anthropic");
         println!("   2. Follow the OAuth flow to get fresh tokens");
         println!("   3. Try starting the server again");
         std::process::exit(1);
@@ -128,7 +128,7 @@ async fn start_server(host: Option<String>, port: Option<u16>) -> Result<()> {
     config.save()?;
 
     // Initialize authentication cache - fails startup if any OAuth tokens are expired
-    let auth_cache = match setu::auth::initialize_auth_cache().await {
+    let auth_cache = match prism::auth::initialize_auth_cache().await {
         Ok(cache) => cache,
         Err(e) => {
             eprintln!("{}", e);
@@ -136,13 +136,13 @@ async fn start_server(host: Option<String>, port: Option<u16>) -> Result<()> {
         }
     };
 
-    let server = setu::server::SetuServer::new(config, auth_cache);
+    let server = prism::server::PrismServer::new(config, auth_cache);
     server.start().await
 }
 
 async fn validate_oauth_tokens(config: &mut Config) -> Result<()> {
-    use setu::auth::anthropic::AnthropicOAuth;
-    use setu::auth::google::GoogleOAuth;
+    use prism::auth::anthropic::AnthropicOAuth;
+    use prism::auth::google::GoogleOAuth;
 
     info!("Validating OAuth tokens...");
 
@@ -150,7 +150,7 @@ async fn validate_oauth_tokens(config: &mut Config) -> Result<()> {
     if let Some(provider) = config.providers.get_mut("anthropic") {
         info!("Checking Anthropic OAuth tokens...");
 
-        // Always try to validate auth config - this will try Claude Code credentials if setu has none
+        // Always try to validate auth config - this will try Claude Code credentials if prism has none
         if let Err(e) = AnthropicOAuth::validate_auth_config(&mut provider.auth).await {
             info!(
                 "Anthropic OAuth validation failed: {} (will only work with direct API keys)",
@@ -165,7 +165,7 @@ async fn validate_oauth_tokens(config: &mut Config) -> Result<()> {
     if let Some(provider) = config.providers.get_mut("gemini") {
         info!("Checking Gemini OAuth tokens...");
 
-        // Always try to validate auth config - this will try Gemini CLI credentials if setu has none
+        // Always try to validate auth config - this will try Gemini CLI credentials if prism has none
         if let Err(e) = GoogleOAuth::validate_auth_config(&mut provider.auth).await {
             info!(
                 "Gemini OAuth validation failed: {} (will only work with direct API keys)",
@@ -203,7 +203,7 @@ async fn validate_config() -> Result<()> {
 }
 
 async fn diagnose_tokens() -> Result<()> {
-    use setu::auth::anthropic::AnthropicOAuth;
+    use prism::auth::anthropic::AnthropicOAuth;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     println!("Diagnosing OAuth Token Issues");
@@ -230,7 +230,7 @@ async fn diagnose_tokens() -> Result<()> {
         }
         None => {
             println!("No Anthropic provider found in configuration");
-            println!("   Run 'setu auth anthropic' to set up OAuth");
+            println!("   Run 'prism auth anthropic' to set up OAuth");
             return Ok(());
         }
     };
@@ -248,7 +248,7 @@ async fn diagnose_tokens() -> Result<()> {
         }
         None => {
             println!("No OAuth refresh token found");
-            println!("   Run 'setu auth anthropic' to get tokens");
+            println!("   Run 'prism auth anthropic' to get tokens");
             return Ok(());
         }
     }
@@ -319,7 +319,7 @@ async fn diagnose_tokens() -> Result<()> {
             println!();
             println!("Recommended Actions:");
             println!("1. Your refresh token has likely expired");
-            println!("2. Run: setu auth anthropic");
+            println!("2. Run: prism auth anthropic");
             println!("3. Complete the OAuth flow to get fresh tokens");
             println!("4. Try starting the server again");
         }
@@ -330,7 +330,7 @@ async fn diagnose_tokens() -> Result<()> {
     println!("=======");
     println!(
         "Config file: {:?}",
-        Config::config_dir().unwrap_or_default().join("setu.toml")
+        Config::config_dir().unwrap_or_default().join("prism.toml")
     );
     println!("Providers configured: {}", config.providers.len());
 
@@ -348,9 +348,9 @@ fn init_tracing(verbose: u8, payload_log_cli: PayloadLogModeCli) -> Result<()> {
         // -v, -vv, -vvv => debug only for our crate; others stay at info
         // -vvvv => trace only for our crate; others stay at info
         let directive = if verbose >= 4 {
-            "info,setu=trace"
+            "info,prism=trace"
         } else if verbose >= 1 {
-            "info,setu=debug"
+            "info,prism=debug"
         } else {
             "info"
         };
@@ -407,7 +407,7 @@ fn init_tracing(verbose: u8, payload_log_cli: PayloadLogModeCli) -> Result<()> {
     }
 
     // Configure payload logging mode
-    use setu::server::error_handling as eh;
+    use prism::server::error_handling as eh;
     let payload_mode = match payload_log_cli {
         PayloadLogModeCli::Off => eh::PayloadLogMode::Off,
         PayloadLogModeCli::Truncated => eh::PayloadLogMode::Truncated,

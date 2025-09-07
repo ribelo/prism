@@ -183,7 +183,7 @@ pub async fn handle_oauth_request(
                             "OAuth request failed with auth error, attempting token refresh"
                         );
 
-                        // Try to refresh token from setu config if available
+                        // Try to refresh token from prism config if available
                         let config_guard = config.lock().await;
                         if let Some(anthropic_provider) = config_guard.providers.get("anthropic") {
                             let mut auth_config = anthropic_provider.auth.clone();

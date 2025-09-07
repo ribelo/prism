@@ -4,7 +4,7 @@ pub mod google;
 pub mod openai;
 
 use crate::config::AuthConfig;
-use crate::error::{Result, SetuError};
+use crate::error::{Result, PrismError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Cached authentication method to avoid checking tokens on every request
@@ -42,7 +42,7 @@ impl AuthProvider for AuthConfig {
         if let Some(oauth_token) = &self.oauth_access_token {
             Ok(format!("Bearer {}", oauth_token))
         } else {
-            Err(SetuError::Other(
+            Err(PrismError::Other(
                 "No OAuth credentials found in config. API keys should be set via environment variables.".to_string(),
             ))
         }
@@ -116,7 +116,7 @@ fn determine_anthropic_auth_method() -> Result<AuthMethod> {
             use tracing::error;
             error!("Found expired Claude CLI OAuth tokens - startup will fail");
             // Return clean error for expired tokens - no fallback to API key
-            return Err(SetuError::Other(
+            return Err(PrismError::Other(
                 "Anthropic OAuth tokens are expired!\n\n\
                  Token Status:\n\
                    • Claude CLI: expired\n\
@@ -133,7 +133,7 @@ fn determine_anthropic_auth_method() -> Result<AuthMethod> {
     }
 
     // No OAuth tokens found anywhere - this is an error for OAuth providers
-    Err(SetuError::Other(
+    Err(PrismError::Other(
         "No Anthropic OAuth tokens found!\n\n\
          Token Status:\n\
            • Claude CLI: not found\n\
@@ -172,14 +172,14 @@ async fn determine_gemini_auth_method() -> Result<AuthMethod> {
                 use tracing::error;
                 error!("Found expired Gemini CLI OAuth tokens - startup will fail");
                 // Return clean error for expired tokens - no fallback to API key
-                return Err(SetuError::Other(
+                return Err(PrismError::Other(
                     "Gemini OAuth tokens are expired!\n\n\
                      Token Status:\n\
                        • Gemini CLI: expired\n\
                        • Setu config: not configured\n\n\
                      To fix this issue:\n\
                        1. Try: gemini -p \"test\"      (may trigger automatic refresh)\n\
-                       2. Run: setu auth google      (copy CLI tokens to setu config)\n\n\
+                       2. Run: setu auth google      (copy CLI tokens to prism config)\n\n\
                      If Gemini CLI refresh fails, you may need to re-authenticate with Google."
                         .to_string(),
                 ));
@@ -190,7 +190,7 @@ async fn determine_gemini_auth_method() -> Result<AuthMethod> {
     }
 
     // No OAuth tokens found anywhere - this is an error for OAuth providers
-    Err(SetuError::Other(
+    Err(PrismError::Other(
         "No Gemini OAuth tokens found!\n\n\
          Token Status:\n\
            • Gemini CLI: not found\n\

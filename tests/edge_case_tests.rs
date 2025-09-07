@@ -8,7 +8,7 @@ use serde_json::json;
 use std::sync::{Arc, atomic::AtomicU64};
 use tokio::sync::Mutex;
 
-use setu::{
+use prism::{
     auth::{AuthCache, AuthMethod, initialize_auth_cache},
     config::{AuthConfig, Config, ProviderConfig, RetryConfig, RoutingConfig, ServerConfig},
     server::{
@@ -61,7 +61,7 @@ async fn create_test_app_state() -> AppState {
             cached_at: SystemTime::now(),
         })),
         last_config_check: Arc::new(AtomicU64::new(0)),
-        config_path: std::path::PathBuf::from("/tmp/test_setu.toml"),
+        config_path: std::path::PathBuf::from("/tmp/test_prism.toml"),
     }
 }
 
@@ -342,7 +342,7 @@ async fn test_openai_endpoints() {
 
     assert!(json_value["data"].is_array());
     assert_eq!(json_value["object"], "list");
-    assert_eq!(json_value["data"][0]["id"], "setu-noop");
+    assert_eq!(json_value["data"][0]["id"], "prism-noop");
 }
 
 /// Test streaming request edge cases

@@ -6,12 +6,12 @@ use tokio::sync::Mutex;
 use tracing::info;
 
 use crate::config::Config;
-use crate::error::SetuError;
+use crate::error::PrismError;
 use crate::router::name_based::RoutingDecision;
 use crate::server::error_handling;
 
 /// Create OpenRouter client with API key authentication
-pub async fn create_openrouter_client(config: Arc<Mutex<Config>>) -> Result<OpenRouter, SetuError> {
+pub async fn create_openrouter_client(config: Arc<Mutex<Config>>) -> Result<OpenRouter, PrismError> {
     // Try OPENROUTER_API_KEY first (correct OpenRouter key)
     if let Ok(api_key) = std::env::var("OPENROUTER_API_KEY") {
         info!("🔐 OpenRouter → API key via OPENROUTER_API_KEY");
@@ -29,12 +29,12 @@ pub async fn create_openrouter_client(config: Arc<Mutex<Config>>) -> Result<Open
     if let Some(openai_provider) = config_guard.providers.get("openai")
         && let Some(api_key) = &openai_provider.api_key
     {
-        info!("🔐 OpenRouter → API key via setu config");
+        info!("🔐 OpenRouter → API key via prism config");
         return Ok(OpenRouter::builder().api_key(api_key).build());
     }
 
-    Err(SetuError::Other(
-        "No OpenRouter API key found (OPENROUTER_API_KEY or OPENAI_API_KEY environment variable or setu config)".to_string(),
+    Err(PrismError::Other(
+        "No OpenRouter API key found (OPENROUTER_API_KEY or OPENAI_API_KEY environment variable or prism config)".to_string(),
     ))
 }
 
@@ -209,11 +209,23 @@ pub async fn handle_openrouter_request(
             anthropic_request,
         ) {
             Ok(mut req) => {
-                // Fix the model name - use cleaned model without provider prefix
-                // If routing decision targets explicit OpenAI provider, prefix accordingly for OpenRouter
+                // Fix the model name based on routing decision
                 if routing_decision.provider == "openai" {
+                    // Third-party OpenAI model via OpenRouter
                     req.model = format!("openai/{}", routing_decision.model);
+                } else if routing_decision.provider == "openrouter" 
+                    && routing_decision.original_model.starts_with("openrouter/") {
+                    // OpenRouter model - check if native or third-party
+                    let slash_count = routing_decision.original_model.matches('/').count();
+                    if slash_count == 1 {
+                        // Native OpenRouter model (openrouter/sonoma-sky-alpha) - preserve full name
+                        req.model = routing_decision.original_model.clone();
+                    } else {
+                        // Third-party model via OpenRouter (openrouter/openai/gpt-4o) - use extracted model name
+                        req.model = routing_decision.model.clone();
+                    }
                 } else {
+                    // Other cases - use extracted model name
                     req.model = routing_decision.model.clone();
                 }
                 req

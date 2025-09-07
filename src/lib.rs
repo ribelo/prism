@@ -8,4 +8,4 @@ pub mod router;
 pub mod server;
 
 pub use config::Config;
-pub use error::{Result, SetuError};
+pub use error::{Result, PrismError};

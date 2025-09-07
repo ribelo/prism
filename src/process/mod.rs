@@ -4,7 +4,7 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tracing::{debug, error, info};
 
-use crate::{Config, Result, SetuError};
+use crate::{Config, Result, PrismError};
 
 // Configuration constants - extracted from magic numbers
 const SERVER_PROBE_TIMEOUT_SECS: u64 = 2;
@@ -37,7 +37,7 @@ pub async fn is_server_running() -> Result<Option<String>> {
                 }
                 Ok(false) => {
                     debug!("Port {} is occupied by a non-Setu service", addr);
-                    Err(SetuError::Other(format!(
+                    Err(PrismError::Other(format!(
                         "Port {} is occupied by another service. Please stop it or use a different port.",
                         config.server.port
                     )))
@@ -96,7 +96,7 @@ pub fn spawn_server_background() -> Result<Child> {
 
     // Get the current executable path so we can spawn another instance of ourselves
     let current_exe = std::env::current_exe()
-        .map_err(|e| SetuError::Other(format!("Failed to get current executable path: {}", e)))?;
+        .map_err(|e| PrismError::Other(format!("Failed to get current executable path: {}", e)))?;
 
     let child = Command::new(current_exe)
         .args(["start"])
@@ -104,7 +104,7 @@ pub fn spawn_server_background() -> Result<Child> {
         .stderr(Stdio::null())
         .stdin(Stdio::null())
         .spawn()
-        .map_err(|e| SetuError::Other(format!("Failed to start server: {}", e)))?;
+        .map_err(|e| PrismError::Other(format!("Failed to start server: {}", e)))?;
 
     Ok(child)
 }
@@ -129,7 +129,7 @@ pub async fn wait_for_server(max_attempts: u32) -> Result<String> {
         tokio::time::sleep(Duration::from_millis(SERVER_READY_RETRY_INTERVAL_MS)).await;
     }
 
-    Err(SetuError::Other(
+    Err(PrismError::Other(
         "Server failed to start within timeout".to_string(),
     ))
 }
@@ -142,7 +142,7 @@ pub fn spawn_client_process(command: &str, args: &[String], server_url: &str) ->
         .args(args)
         .env("ANTHROPIC_BASE_URL", server_url)
         .spawn()
-        .map_err(|e| SetuError::Other(format!("Failed to start {}: {}", command, e)))?;
+        .map_err(|e| PrismError::Other(format!("Failed to start {}: {}", command, e)))?;
 
     Ok(child)
 }
@@ -166,7 +166,7 @@ pub fn spawn_client_process_with_env(
 
     let child = cmd
         .spawn()
-        .map_err(|e| SetuError::Other(format!("Failed to start {}: {}", command, e)))?;
+        .map_err(|e| PrismError::Other(format!("Failed to start {}: {}", command, e)))?;
 
     Ok(child)
 }

@@ -637,9 +637,10 @@ mod tests {
     fn test_gemini_detailed_logging() {
         use gemini_ox::generate_content::{GenerationConfig, ThinkingConfig};
         
+        let content = gemini_ox::Content::new(gemini_ox::Role::User, vec!["test"]);
         let mut request = gemini_ox::generate_content::request::GenerateContentRequest::builder()
             .model("gemini-2.0-flash")
-            .content_list(vec![])
+            .content_list(vec![content])
             .build();
         
         // Set generation config with thinking

@@ -41,4 +41,4 @@ echo "Pushing to origin..."
 git push origin $(git branch --show-current)
 git push origin "${VERSION}"
 
-echo "Done! CI will build release at: https://github.com/ribelo/setu/releases/tag/${VERSION}"
+echo "Done! CI will build release at: https://github.com/ribelo/prism/releases/tag/${VERSION}"

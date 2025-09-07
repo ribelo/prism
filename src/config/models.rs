@@ -15,7 +15,7 @@ impl ParsedModel {
 
         // Reject names with consecutive slashes
         if model_name.contains("//") {
-            return Err(crate::error::SetuError::InvalidModel(format!(
+            return Err(crate::error::PrismError::InvalidModel(format!(
                 "Model name must be in format 'provider/model', got: {}",
                 model_name
             )));
@@ -25,7 +25,7 @@ impl ParsedModel {
         let parts: Vec<&str> = model_name.splitn(2, '/').collect();
 
         if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
-            return Err(crate::error::SetuError::InvalidModel(format!(
+            return Err(crate::error::PrismError::InvalidModel(format!(
                 "Model name must be in format 'provider/model', got: {}",
                 model_name
             )));

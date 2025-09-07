@@ -2,7 +2,7 @@ use clap::Subcommand;
 use tracing::{error, info};
 
 use crate::process::ProcessManager;
-use crate::{Result, SetuError};
+use crate::{Result, PrismError};
 
 #[derive(Subcommand, Debug)]
 pub enum RunCommands {
@@ -34,7 +34,7 @@ async fn handle_claude_run(args: Vec<String>) -> Result<()> {
 
     // Check if claude is available
     if !is_command_available("claude") {
-        return Err(SetuError::Other(
+        return Err(PrismError::Other(
             "Claude CLI not found. Please install Claude Code first.\n\
              Visit https://claude.ai/code to get started."
                 .to_string(),
@@ -78,7 +78,7 @@ async fn handle_codex_run(args: Vec<String>) -> Result<()> {
 
     // Check if codex is available
     if !is_command_available("codex") {
-        return Err(SetuError::Other(
+        return Err(PrismError::Other(
             "Codex CLI not found. Please install Codex first.\n\
              Visit https://openai.com/codex or install via npm: npm i -g @openai/codex@native"
                 .to_string(),

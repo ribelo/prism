@@ -481,4 +481,39 @@ mod tests {
         let params = decision.query_params.unwrap();
         assert_eq!(params.get("reasoning"), Some(&"true".to_string()));
     }
+
+    #[test]
+    fn test_openrouter_native_model_routing() {
+        let config = create_test_config();
+        let router = NameBasedRouter::new(config);
+
+        // Test OpenRouter native model (single slash)
+        let decision = router.route_model("openrouter/sonoma-sky-alpha").unwrap();
+        assert_eq!(decision.provider, "openrouter");
+        assert_eq!(decision.model, "sonoma-sky-alpha");
+        assert_eq!(decision.original_model, "openrouter/sonoma-sky-alpha");
+        assert_eq!(decision.provider_preference, None);
+
+        // Test OpenRouter native model with query params
+        let decision = router.route_model("openrouter/sonoma-dusk-alpha?temperature=0.7").unwrap();
+        assert_eq!(decision.provider, "openrouter");
+        assert_eq!(decision.model, "sonoma-dusk-alpha");
+        assert_eq!(decision.original_model, "openrouter/sonoma-dusk-alpha?temperature=0.7");
+        let params = decision.query_params.unwrap();
+        assert_eq!(params.get("temperature"), Some(&"0.7".to_string()));
+
+        // Test OpenRouter third-party model (multiple slashes) - should work as before
+        let decision = router.route_model("openrouter/openai/gpt-4o").unwrap();
+        assert_eq!(decision.provider, "openrouter");
+        assert_eq!(decision.model, "openai/gpt-4o");
+        assert_eq!(decision.original_model, "openrouter/openai/gpt-4o");
+        assert_eq!(decision.provider_preference, None);
+
+        // Test OpenRouter third-party model with provider preference
+        let decision = router.route_model("openrouter/meta-llama/llama-3.1-8b:nitro").unwrap();
+        assert_eq!(decision.provider, "openrouter");
+        assert_eq!(decision.model, "meta-llama/llama-3.1-8b");
+        assert_eq!(decision.original_model, "openrouter/meta-llama/llama-3.1-8b:nitro");
+        assert_eq!(decision.provider_preference, Some("nitro".to_string()));
+    }
 }

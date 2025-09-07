@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::auth::common::{analyze_token_source, choose_best_token_source};
 use crate::config::AuthConfig;
-use crate::error::{Result, SetuError};
+use crate::error::{Result, PrismError};
 
 const OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
@@ -45,7 +45,7 @@ impl OpenAIOAuth {
     /// Load codex CLI auth file
     fn load_codex_auth() -> Result<CodexAuthJson> {
         let home = std::env::var("HOME")
-            .map_err(|_| SetuError::Other("HOME environment variable not set".to_string()))?;
+            .map_err(|_| PrismError::Other("HOME environment variable not set".to_string()))?;
         let codex_home = std::env::var("CODEX_HOME").unwrap_or_else(|_| format!("{}/.codex", home));
         let auth_path = PathBuf::from(codex_home).join("auth.json");
 
@@ -57,7 +57,7 @@ impl OpenAIOAuth {
     /// Save codex CLI auth file
     fn save_codex_auth(auth_json: &CodexAuthJson) -> Result<()> {
         let home = std::env::var("HOME")
-            .map_err(|_| SetuError::Other("HOME environment variable not set".to_string()))?;
+            .map_err(|_| PrismError::Other("HOME environment variable not set".to_string()))?;
         let codex_home = std::env::var("CODEX_HOME").unwrap_or_else(|_| format!("{}/.codex", home));
         let auth_path = PathBuf::from(codex_home).join("auth.json");
 
@@ -103,7 +103,7 @@ impl OpenAIOAuth {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(SetuError::Other(format!(
+            return Err(PrismError::Other(format!(
                 "Token refresh failed with status {}: {}",
                 status, error_text
             )));
@@ -117,7 +117,7 @@ impl OpenAIOAuth {
     pub async fn try_codex_cli_credentials() -> Result<AuthConfig> {
         let mut auth_json = Self::load_codex_auth()?;
         let tokens = auth_json.tokens.clone().ok_or_else(|| {
-            SetuError::Other("No OAuth tokens found in codex CLI auth file".to_string())
+            PrismError::Other("No OAuth tokens found in codex CLI auth file".to_string())
         })?;
 
         // Refresh if needed
@@ -164,7 +164,7 @@ impl OpenAIOAuth {
 
     /// Validate and refresh OpenAI OAuth config, choosing the best available tokens
     pub async fn validate_auth_config(auth_config: &mut AuthConfig) -> Result<()> {
-        let setu_token_info = analyze_token_source("setu config", auth_config);
+        let prism_token_info = analyze_token_source("prism config", auth_config);
         let codex_token_info = Self::try_codex_cli_credentials()
             .await
             .map(|config| analyze_token_source("codex CLI", &config))
@@ -174,7 +174,7 @@ impl OpenAIOAuth {
             });
 
         // Choose the best token source
-        let chosen_source = choose_best_token_source(&setu_token_info, &codex_token_info);
+        let chosen_source = choose_best_token_source(&prism_token_info, &codex_token_info);
         tracing::info!("Using OpenAI OAuth tokens: {}", chosen_source);
 
         match chosen_source.source.as_str() {
@@ -183,18 +183,18 @@ impl OpenAIOAuth {
                     *auth_config = codex_config;
                 }
             }
-            "setu config" => {
+            "prism config" => {
                 // Current config is best - validate it's not expired
-                if setu_token_info.is_expired {
-                    return Err(SetuError::Other(
-                        "Setu OpenAI OAuth token has expired and no refresh token is available"
+                if prism_token_info.is_expired {
+                    return Err(PrismError::Other(
+                        "Prism OpenAI OAuth token has expired and no refresh token is available"
                             .to_string(),
                     ));
                 }
             }
             _ => {
-                return Err(SetuError::Other(
-                    "No valid OpenAI OAuth tokens available from setu config or codex CLI"
+                return Err(PrismError::Other(
+                    "No valid OpenAI OAuth tokens available from prism config or codex CLI"
                         .to_string(),
                 ));
             }
@@ -211,7 +211,7 @@ impl OpenAIOAuth {
         auth_config
             .oauth_access_token
             .clone()
-            .ok_or_else(|| SetuError::Other("No OpenAI OAuth access token available".to_string()))
+            .ok_or_else(|| PrismError::Other("No OpenAI OAuth access token available".to_string()))
     }
 }
 

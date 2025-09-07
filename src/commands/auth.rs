@@ -2,7 +2,7 @@ use clap::Subcommand;
 use std::io::{self, Write};
 use tracing::info;
 
-use crate::{Config, Result, SetuError};
+use crate::{Config, Result, PrismError};
 
 #[derive(Subcommand, Debug)]
 pub enum AuthCommands {
@@ -50,7 +50,7 @@ async fn handle_anthropic_auth() -> Result<()> {
     let mut auth_code = String::new();
     io::stdin()
         .read_line(&mut auth_code)
-        .map_err(|e| SetuError::Other(format!("Failed to read input: {}", e)))?;
+        .map_err(|e| PrismError::Other(format!("Failed to read input: {}", e)))?;
     let auth_code = auth_code.trim().to_string();
 
     if auth_code.is_empty() {

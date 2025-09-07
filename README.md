@@ -1,4 +1,4 @@
-# Setu
+# Prism
 
 Universal AI model router - local HTTP proxy for AI providers.
 
@@ -8,9 +8,9 @@ Universal AI model router - local HTTP proxy for AI providers.
 
 **Every other router sucks at OAuth.** You get XOR: use Anthropic models with OAuth *or* use other models with a router, but never both. That's stupid.
 
-**Available routers have garbage model configs.** Sure, you can usually edit the whole response, but that's messy boilerplate hell. Setu gives you URL-like model parameters that actually fucking work: `openrouter/z-ai/glm-4.5:fireworks?temperature=0.7&max_tokens=2000&top_k=40`. Set all provider parameters through the model string. Map any alias to full model configs. Clean, concise, and gets shit done. No JSON wrestling, no config file hunting - just append your params and go. Worse is better.
+**Available routers have garbage model configs.** Sure, you can usually edit the whole response, but that's messy boilerplate hell. Prism gives you URL-like model parameters that actually fucking work: `openrouter/z-ai/glm-4.5:fireworks?temperature=0.7&max_tokens=2000&top_k=40`. Set all provider parameters through the model string. Map any alias to full model configs. Clean, concise, and gets shit done. No JSON wrestling, no config file hunting - just append your params and go. Worse is better.
 
-**Every app can use every model.** OAuth support for Claude, Codex, and Gemini. Simple proxy means any model works through any interface. Want GPT-5 in Claude Code? Done. Want to use Claude Max plan in Codex CLI? Done. Want to use whatever the fuck CRUSH is? Done. No more vendor lock-in bullshit.
+**Every app can use every model.** OAuth support for Claude and Gemini. Simple proxy means any model works through any interface. Want GPT-5 in Claude Code? Done. Want to use Claude Max plan in any OpenAI-compatible client? Done. Want to use whatever the fuck CRUSH is? Done. No more vendor lock-in bullshit.
 
 **This definitely violates every provider's TOS.** You should absolutely never use this. When (not if) they detect the proxy and block your account, don't come crying. I warned you. Use at your own risk and don't blame me when your $200/month Claude subscription gets nuked because you wanted to use it with some random AI editor that definitely looks suspicious in their logs.
 
@@ -27,7 +27,7 @@ Universal AI model router - local HTTP proxy for AI providers.
 
 **Custom endpoints.** Add any provider with custom endpoint: `chutes/model-name` → routes to Chutes API you add in `config.toml`.
 
-**OAuth + API key auth.** Automatic token refresh. Works with Claude Code, Codex CLI, Gemini CLI credentials. Did I mention this violates TOS? Good.
+**OAuth + API key auth.** Automatic token refresh. Works with Claude Code and Gemini CLI credentials. Did I mention this violates TOS? Good.
 
 **Smart billing fallback.** Use free Gemini quota, automatically switch to API key billing when you hit rate limits. Same for Anthropic subscription → pay-per-use.
 
@@ -49,29 +49,30 @@ Universal AI model router - local HTTP proxy for AI providers.
 - ✅ **Gemini OAuth** - Tested and working. Token refresh works
 - ✅ **Direct API calls** - All three endpoints (`/v1/chat/completions`, `/v1/messages`, `/v1beta/models/{model}:generateContent`) tested and working
 
+**What doesn't work:**
+- ❌ **OpenAI/Codex OAuth** - Not functional. Requires system prompt mapping between different tool systems, which isn't implemented. Use API keys instead.
+
 **What might work or might not:**
-- ❓ **OpenAI OAuth** - Not tested because I don't have an OpenAI account. May work, may not. Try it and let me know
-- ❓ **Any other AI editor/tool** - If it speaks OpenAI, Anthropic, or Gemini API format, it should work.
+- ❓ **Any other AI editor/tool** - If it speaks OpenAI, Anthropic, or Gemini API format, it should work with API keys.
 
 **Need feedback on:**
-- Does Codex CLI OAuth work? I implemented it but can't test it
 - Does it work with your favorite AI editor? Let me know what breaks
 
 ## Install
 
 **Build from source** (only method currently):
 ```bash
-git clone https://github.com/ribelo/setu.git
-cd setu
+git clone https://github.com/ribelo/prism.git
+cd prism
 cargo build --release
-sudo cp target/release/setu /usr/local/bin/
+sudo cp target/release/prism /usr/local/bin/
 ```
 
 ## Quick start
 
-1. **Configure providers**: `setu auth anthropic` (or `openai`, `google`)
-2. **Use with Claude Code**: `setu run claude` (auto-starts server)
-3. **Or start manually**: `setu start`
+1. **Configure providers**: `prism auth anthropic` (or `google` for Gemini). For OpenAI, set `OPENAI_API_KEY` environment variable.
+2. **Use with Claude Code**: `prism run claude` (auto-starts server)
+3. **Or start manually**: `prism start`
 
 ### Direct API usage
 
@@ -112,20 +113,21 @@ curl -X POST http://127.0.0.1:3742/v1beta/models/anthropic/claude-3-5-sonnet-202
 
 ### Use with CLI tools
 ```bash
-# Automatically starts server(if needed) and runs Claude Code with Setu backend
-setu run claude
+# Automatically starts server(if needed) and runs Claude Code with Prism backend
+prism run claude
 
 # Pass arguments to Claude Code
-setu run claude --help
+prism run claude --help
 
-# Same for Codex CLI (OpenAI)
-setu run codex "write a function"
-setu run codex exec "list files"
+# For Codex CLI (OpenAI) - OAuth not working, but command exists
+# Note: OAuth integration is disabled, only works with API keys
+prism run codex "write a function"
+prism run codex exec "list files"
 ```
 
 ### URL Parameter Support
 
-Setu supports **all parameters** from every provider via URL query parameters. Nothing complex, just passing it by:
+Prism supports **all parameters** from every provider via URL query parameters. Nothing complex, just passing it by:
 
 ```bash
 # Standard parameters (work across all providers)
@@ -185,7 +187,7 @@ Then just use the alias:
 
 ## Configuration
 
-Config file: `~/.config/setu/setu.toml`
+Config file: `~/.config/prism/prism.toml`
 
 ### Basic setup
 
@@ -268,14 +270,14 @@ The `effort` parameter now **explicitly controls reasoning depth** instead of in
 
 ## Commands
 
-- `setu start` - Start HTTP server (manual start)
-- `setu config` - Validate configuration
-- `setu auth anthropic` - Setup Anthropic OAuth
-- `setu auth openai` - Setup OpenAI OAuth
-- `setu auth google` - Setup Gemini OAuth
-- `setu diagnose` - Debug OAuth tokens
-- `setu run claude [args]` - Auto-start server if needed + run Claude Code with Setu backend
-- `setu run codex [args]` - Auto-start server if needed + run Codex CLI with Setu backend
+- `prism start` - Start HTTP server (manual start)
+- `prism config` - Validate configuration
+- `prism auth anthropic` - Setup Anthropic OAuth
+- `prism auth openai` - Setup OpenAI OAuth (currently non-functional)
+- `prism auth google` - Setup Gemini OAuth
+- `prism diagnose` - Debug OAuth tokens
+- `prism run claude [args]` - Auto-start server if needed + run Claude Code with Prism backend
+- `prism run codex [args]` - Auto-start server if needed + run Codex CLI with Prism backend
 
 ## Features
 
@@ -292,9 +294,9 @@ curl -d '{"model": "best", ...}'   # Tries sonnet, falls back to gpt-4o
 ```
 
 ### Authentication
-- **OAuth**: Automatic token refresh, shared with Claude Code/Gemini CLI. I mentioned about TOS?
-- **API keys**: Environment variables or config file
-- **Fallback**: OAuth → API key on rate limits (429 errors)
+- **OAuth**: Automatic token refresh for Anthropic and Gemini, shared with Claude Code/Gemini CLI. OpenAI OAuth is disabled due to system prompt compatibility issues. I mentioned about TOS?
+- **API keys**: Environment variables or config file (required for OpenAI)
+- **Fallback**: OAuth → API key on rate limits (429 errors) for supported providers
 
 ### Error handling
 - **Retry policies**: Exponential backoff (3 attempts, 1s-30s delays)
@@ -314,8 +316,8 @@ cargo check --all-targets && cargo clippy -- -D warnings && cargo fmt
 
 **Tests**: `cargo test`
 
-**Config location**: `~/.config/setu/setu.toml`
-**Logs**: `~/.local/share/setu/logs/`
+**Config location**: `~/.config/prism/prism.toml`
+**Logs**: `~/.local/share/prism/logs/`
 
 ---
 

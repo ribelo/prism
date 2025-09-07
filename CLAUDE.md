@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Setu is a universal AI model router - an HTTP proxy daemon that provides provider and client agnostic intelligent routing middleware for AI model interactions. It acts as a local proxy server that translates between different AI provider APIs (OpenAI, Anthropic, Gemini, etc.) while maintaining a consistent interface for clients.
+Prism is a universal AI model router - an HTTP proxy daemon that provides provider and client agnostic intelligent routing middleware for AI model interactions. It acts as a local proxy server that translates between different AI provider APIs (OpenAI, Anthropic, Gemini, etc.) while maintaining a consistent interface for clients.
 
 ## Development Commands
 
@@ -53,7 +53,7 @@ nix develop               # Enter dev shell with nightly Rust and dependencies
 
 3. **Configuration** (`src/config/`)
    - XDG-compliant configuration using Figment + TOML
-   - Config location: `~/.config/setu/setu.toml`
+   - Config location: `~/.config/prism/prism.toml`
    - Environment variable support for API keys
 
 4. **Authentication** (`src/auth/`)
@@ -68,7 +68,7 @@ nix develop               # Enter dev shell with nightly Rust and dependencies
 ### Request Flow
 
 ```
-Client (OpenAI format) → Setu Server → ai-ox conversion → Provider (Anthropic/etc)
+Client (OpenAI format) → Prism Server → ai-ox conversion → Provider (Anthropic/etc)
                             ↑                                    ↓
                          Response ← ai-ox conversion ← Provider Response
 ```
@@ -82,9 +82,9 @@ Client (OpenAI format) → Setu Server → ai-ox conversion → Provider (Anthro
 ## Configuration Structure
 
 Configuration files are stored in XDG directories:
-- Config: `~/.config/setu/setu.toml`
-- Logs: `~/.local/share/setu/logs/`
-- Cache: `~/.cache/setu/` (future)
+- Config: `~/.config/prism/prism.toml`
+- Logs: `~/.local/share/prism/logs/`
+- Cache: `~/.cache/prism/` (future)
 
 ## API Endpoints
 
@@ -101,7 +101,7 @@ Provider API keys can be set via environment variables:
 
 ## Error Handling
 
-Uses `thiserror` for error types and `backon` for retry logic. All errors flow through `SetuError` type defined in `src/error.rs`.
+Uses `thiserror` for error types and `backon` for retry logic. All errors flow through `PrismError` type defined in `src/error.rs`.
 
 ## Testing Approach
 
@@ -113,7 +113,7 @@ Uses `thiserror` for error types and `backon` for retry logic. All errors flow t
 ## Debugging & Logging
 
 ### Request Logging
-Setu includes a `compact_request_for_logging()` function that truncates large request payloads for debugging:
+Prism includes a `compact_request_for_logging()` function that truncates large request payloads for debugging:
 - Truncates text fields > 100 characters to 97 chars + "..."
 - Preserves important structural fields: `model`, `role`, `type`, `id`, `name`
 - Recursively compacts nested objects and arrays

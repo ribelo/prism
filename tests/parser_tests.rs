@@ -1,4 +1,4 @@
-use setu::config::models::ParsedModel;
+use prism::config::models::ParsedModel;
 
 #[test]
 fn test_parse_valid_model_formats() {

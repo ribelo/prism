@@ -1,5 +1,5 @@
 {
-  description = "A flake for Setu project with nightly Rust";
+  description = "A flake for Prism project with nightly Rust";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs";
@@ -34,7 +34,7 @@
             buildInputs = buildInputs;
 
             shellHook = ''
-              echo "Setu development environment loaded!"
+              echo "Prism development environment loaded!"
               echo "Using nightly Rust toolchain"
             '';
           };

@@ -1,9 +1,9 @@
 use thiserror::Error;
 
-pub type Result<T> = std::result::Result<T, SetuError>;
+pub type Result<T> = std::result::Result<T, PrismError>;
 
 #[derive(Error, Debug)]
-pub enum SetuError {
+pub enum PrismError {
     #[error("Configuration error: {0}")]
     Config(#[from] Box<figment::Error>),
 

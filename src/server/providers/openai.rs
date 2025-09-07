@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 
 use crate::auth::openai::OpenAIOAuth;
 use crate::config::Config;
-use crate::error::SetuError;
+use crate::error::PrismError;
 use crate::router::name_based::RoutingDecision;
 use crate::server::error_handling;
 
@@ -23,7 +23,7 @@ fn sanitize_instructions_for_openai(_text: String) -> String {
 }
 
 /// Resolve OpenAI auth using OAuth (codex/setu) or API key
-async fn resolve_openai_auth(config: Arc<Mutex<Config>>) -> Result<OpenAIAuth, SetuError> {
+async fn resolve_openai_auth(config: Arc<Mutex<Config>>) -> Result<OpenAIAuth, PrismError> {
     // Temporarily skip OAuth - go straight to API key
     // TODO: Re-enable OAuth after fixing Responses API issues
     
@@ -38,12 +38,12 @@ async fn resolve_openai_auth(config: Arc<Mutex<Config>>) -> Result<OpenAIAuth, S
     if let Some(provider) = cfg.providers.get("openai")
         && let Some(api_key) = &provider.api_key
     {
-        tracing::info!("🔐 OpenAI → API key via setu config");
+        tracing::info!("🔐 OpenAI → API key via prism config");
         return Ok(OpenAIAuth::ApiKey(api_key.clone()));
     }
     drop(cfg);
 
-    Err(SetuError::Other(
+    Err(PrismError::Other(
         "No OpenAI credentials available (OAuth or API key)".to_string(),
     ))
 }

@@ -1,8 +1,8 @@
-# Setu Configuration Reference
+# Prism Configuration Reference
 
-Config file: `~/.config/setu/setu.toml`
+Config file: `~/.config/prism/prism.toml`
 
-## Basic Setup
+## Basic Prismp
 
 ```toml
 [server]
@@ -47,9 +47,9 @@ api_key = "sk-ant-hardcoded"      # Direct value
 
 Authenticate once:
 ```bash
-setu auth anthropic  # For Claude Code
-setu auth google     # For Gemini CLI  
-setu auth openai     # For Codex CLI
+prism auth anthropic  # For Claude Code
+prism auth google     # For Gemini CLI  
+prism auth openai     # For Codex CLI
 ```
 
 OAuth tokens stored automatically in config.
@@ -135,8 +135,8 @@ api_key = "local-key"
 ## Environment Overrides
 
 ```bash
-export SETU_SERVER_HOST="0.0.0.0"
-export SETU_SERVER_PORT=8080
+export PRISM_SERVER_HOST="0.0.0.0"
+export PRISM_SERVER_PORT=8080
 ```
 
 That's it. Everything else is optional.

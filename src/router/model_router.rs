@@ -1,5 +1,5 @@
 use crate::config::{Config, ModelRoute};
-use crate::error::{Result, SetuError};
+use crate::error::{Result, PrismError};
 use crate::router::name_based::{NameBasedRouter, RoutingDecision};
 use std::collections::HashSet;
 
@@ -87,7 +87,7 @@ impl ModelRouter {
         }
 
         if routing_decisions.is_empty() {
-            return Err(SetuError::Other(format!(
+            return Err(PrismError::Other(format!(
                 "All fallback routes failed for model '{}'",
                 model_name
             )));

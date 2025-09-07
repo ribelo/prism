@@ -6,7 +6,7 @@ use tracing::info;
 
 use crate::auth::anthropic::AnthropicOAuth;
 use crate::config::Config;
-use crate::error::SetuError;
+use crate::error::PrismError;
 use crate::router::name_based::RoutingDecision;
 use crate::server::error_handling;
 
@@ -95,7 +95,7 @@ pub async fn handle_direct_anthropic_request(
 pub async fn create_anthropic_client(
     config: Arc<Mutex<Config>>,
     prefer_oauth: bool,
-) -> Result<Anthropic, SetuError> {
+) -> Result<Anthropic, PrismError> {
     if prefer_oauth {
         // Try OAuth authentication first for Claude Code
         let mut config_guard = config.lock().await;
@@ -130,11 +130,11 @@ pub async fn create_anthropic_client(
     if let Some(anthropic_provider) = config_guard.providers.get("anthropic")
         && let Some(api_key) = &anthropic_provider.api_key
     {
-        info!("🔐 Anthropic → API key via setu config (pay-per-use billing)");
+        info!("🔐 Anthropic → API key via prism config (pay-per-use billing)");
         return Ok(Anthropic::builder().api_key(api_key).build());
     }
 
-    Err(SetuError::Other(
+    Err(PrismError::Other(
         "No Anthropic authentication available (OAuth or API key)".to_string(),
     ))
 }

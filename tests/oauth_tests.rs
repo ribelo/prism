@@ -10,7 +10,7 @@ use std::sync::{Arc, atomic::AtomicU64};
 use std::time::SystemTime;
 use tokio::sync::Mutex;
 
-use setu::{
+use prism::{
     auth::{AuthCache, AuthMethod},
     config::{AuthConfig, Config, ProviderConfig, RetryConfig, RoutingConfig, ServerConfig},
     server::{AppState, routes::anthropic_messages},
@@ -52,7 +52,7 @@ async fn create_test_app_state_with_oauth() -> AppState {
             auth: FxHashMap::default(),
         })),
         auth_cache: Arc::new(auth_cache),
-        config_path: PathBuf::from("/tmp/setu.toml"),
+        config_path: PathBuf::from("/tmp/prism.toml"),
         last_config_check: Arc::new(AtomicU64::new(0)),
     }
 }
@@ -150,7 +150,7 @@ async fn test_oauth_fallback_to_api_key() {
             auth: FxHashMap::default(),
         })),
         auth_cache: Arc::new(auth_cache),
-        config_path: PathBuf::from("/tmp/setu.toml"),
+        config_path: PathBuf::from("/tmp/prism.toml"),
         last_config_check: Arc::new(AtomicU64::new(0)),
     };
 
