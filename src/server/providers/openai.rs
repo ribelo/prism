@@ -3,12 +3,13 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::auth::openai::OpenAIOAuth;
+// use crate::auth::openai::OpenAIOAuth; // Currently unused - OAuth not functional
 use crate::config::Config;
 use crate::error::PrismError;
 use crate::router::name_based::RoutingDecision;
 use crate::server::error_handling;
 
+#[allow(dead_code)]
 enum OpenAIAuth {
     OAuth(String),
     ApiKey(String),
@@ -16,6 +17,7 @@ enum OpenAIAuth {
 
 /// Replace instructions with simple OpenAI-compatible instruction
 /// OpenAI Responses API expects simple, clean instructions without Claude-specific content
+#[allow(dead_code)]
 fn sanitize_instructions_for_openai(_text: String) -> String {
     // Always use simple, clean instruction like codex-openai-proxy does
     // The OpenAI Responses API rejects complex Claude-specific instructions
@@ -66,7 +68,7 @@ fn auth_header_value(auth: &OpenAIAuth) -> String {
 pub async fn handle_openai_request_from_openai(
     config: Arc<Mutex<Config>>,
     openai_request: openai_ox::request::ChatRequest,
-    routing_decision: RoutingDecision,
+    _routing_decision: RoutingDecision,
     _headers: HeaderMap,
 ) -> Result<axum::response::Response, StatusCode> {
     // Prepare HTTP
@@ -119,7 +121,7 @@ pub async fn handle_openai_request_from_openai(
 pub async fn handle_openai_request_from_anthropic(
     config: Arc<Mutex<Config>>,
     anthropic_request: anthropic_ox::ChatRequest,
-    routing_decision: RoutingDecision,
+    _routing_decision: RoutingDecision,
     _headers: HeaderMap,
 ) -> Result<axum::response::Response, StatusCode> {
     // Prepare auth
@@ -140,7 +142,7 @@ pub async fn handle_openai_request_from_anthropic(
             ))
         }
     };
-    responses_req.model = routing_decision.model.clone();
+    responses_req.model = _routing_decision.model.clone();
     
     if let Some(req_str) = crate::server::error_handling::prepare_request_log(&responses_req) {
         tracing::debug!(target = "setu::request", "Outgoing OpenAI Responses (from Anthropic) request (detailed): {}", req_str);

@@ -124,7 +124,7 @@ fn extract_system_text(val: &serde_json::Value) -> Option<String> {
 }
 
 fn summarize_request_value(val: &serde_json::Value, level: u8) -> serde_json::Value {
-    use serde_json::{json, Value};
+    use serde_json::Value;
     let model = val.get("model").cloned().unwrap_or(Value::String("<unknown>".into()));
     let max_tokens = val.get("max_tokens").cloned().unwrap_or(Value::Null);
     let temperature = val.get("temperature").cloned().unwrap_or(Value::Null);
@@ -183,7 +183,7 @@ fn summarize_request_value(val: &serde_json::Value, level: u8) -> serde_json::Va
 }
 
 fn summarize_response_value(val: &serde_json::Value) -> serde_json::Value {
-    use serde_json::{json, Value};
+    use serde_json::Value;
     let mut obj = serde_json::Map::new();
     if let Some(model) = val.get("model").cloned() { obj.insert("model".into(), model); }
     if let Some(id) = val.get("id").cloned() { obj.insert("id".into(), id); }
@@ -664,6 +664,7 @@ mod tests {
         assert!(log_str.contains("include_thoughts"));
         assert!(log_str.contains("\"null\"")); // Should show null values
     }
+    #[test]
     fn test_openrouter_detailed_logging() {
         // Create a sample OpenRouter request with various parameters
         let mut request = ChatRequest::new("openrouter/openai/gpt-4o", vec![
