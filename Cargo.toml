@@ -1,5 +1,5 @@
 [package]
-name = "setu"
+name = "prism"
 version = "0.1.0"
 edition = "2024"
 
@@ -49,12 +49,12 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 jsonwebtoken = "9.3"
 
 # ai-ox subcrates (GitHub dependency with test fixes) - using only the subcrates we actually need
-anthropic-ox = { path = "/home/ribelo/projects/ribelo/ai-ox/crates/anthropic-ox" }
-gemini-ox = { path = "/home/ribelo/projects/ribelo/ai-ox/crates/gemini-ox" }
-openrouter-ox = { path = "/home/ribelo/projects/ribelo/ai-ox/crates/openrouter-ox" }
-openai-ox = { path = "/home/ribelo/projects/ribelo/ai-ox/crates/openai-ox" }
-ai-ox-common = { path = "/home/ribelo/projects/ribelo/ai-ox/crates/ai-ox-common" }
-conversion-ox = { path = "/home/ribelo/projects/ribelo/ai-ox/crates/conversion-ox", features = ["anthropic-gemini", "anthropic-openrouter", "anthropic-openai"] }
+anthropic-ox = { git = "https://github.com/ribelo/ai-ox.git", rev = "bd499a2137f83ccedaf939c9b2c74cde89dffa13" }
+gemini-ox = { git = "https://github.com/ribelo/ai-ox.git", rev = "bd499a2137f83ccedaf939c9b2c74cde89dffa13" }
+openrouter-ox = { git = "https://github.com/ribelo/ai-ox.git", rev = "bd499a2137f83ccedaf939c9b2c74cde89dffa13" }
+openai-ox = { git = "https://github.com/ribelo/ai-ox.git", rev = "bd499a2137f83ccedaf939c9b2c74cde89dffa13" }
+ai-ox-common = { git = "https://github.com/ribelo/ai-ox.git", rev = "bd499a2137f83ccedaf939c9b2c74cde89dffa13" }
+conversion-ox = { git = "https://github.com/ribelo/ai-ox.git", rev = "bd499a2137f83ccedaf939c9b2c74cde89dffa13", features = ["anthropic-gemini", "anthropic-openrouter", "anthropic-openai"] }
 
 [profile.release]
 opt-level = "z"         # Optimize for size
